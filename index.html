@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joseon Dawn Strategy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Icon Mocks ---
+        const IconMock = (char) => (props) => <span {...props} style={{ display: 'inline-block', fontSize: '1.2em', lineHeight: '1', ...props.style }}>{char}</span>;
+        const Scroll = IconMock('📜');
+        const User = IconMock('👤');
+        const Users = IconMock('👥');
+        const Sword = IconMock('⚔️');
+        const Shield = IconMock('🛡️');
+        const Coins = IconMock('💰');
+        const MapIcon = IconMock('🗺️');
+        const BookOpen = IconMock('📖');
+        const Star = IconMock('⭐');
+        const Skull = IconMock('💀');
+        const Flag = IconMock('🚩');
+        const ChevronRight = IconMock('>');
+        const Activity = IconMock('❤️');
+        const Moon = IconMock('🌙');
+
+        // --- Styles ---
+        const GlobalStyles = () => (
+            <style>{`
+            @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Serif+KR:wght@400;700&family=Noto+Sans+KR:wght@300;400;700&display=swap');
+            
+            .font-cinzel { font-family: 'Cinzel', serif; }
+            .font-crimson { font-family: 'Crimson Text', serif; }
+            .font-myeongjo { font-family: 'Nanum Myeongjo', serif; }
+            
+            .game-container {
+              background: rgba(20, 20, 20, 0.85);
+              box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), inset 0 0 50px rgba(0,0,0,0.5);
+            }
+
+            .char-card {
+              transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            
+            .char-card:hover {
+              transform: translateY(-10px);
+              box-shadow: 0 15px 30px rgba(0,0,0,0.7);
+              border-color: #c5a059;
+            }
+
+            .animate-fade-in {
+                animation: fadeIn 1s ease-in-out;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            
+            .stat-highlight { animation: pulseGolden 2s infinite; }
+            @keyframes pulseGolden {
+                0% { text-shadow: 0 0 5px rgba(255, 215, 0, 0.5); }
+                50% { text-shadow: 0 0 20px rgba(255, 215, 0, 1); }
+                100% { text-shadow: 0 0 5px rgba(255, 215, 0, 0.5); }
+            }
+          `}</style>
+        );
+
+        const CHAPTERS = {
+            1: { id: 1, year: 1919, location: "Gyeongseong (Seoul)", title: "Chapter 1: Harboring the Embers", bgImage: 'J-Image/1919Home.jpg' },
+            2: { id: 2, year: 1920, location: "Manchuria", title: "Chapter 2: Raising the Fierce Tiger", bgImage: 'J-Image/home2.jpg' },
+            2.5: { id: 2.5, year: 1921, location: "Wandering", title: "Dark Era: Period of Trial", bgImage: 'J-Image/gotosanghai.jpg' },
+            3: { id: 3, year: 1932, location: "Shanghai", title: "Chapter 3: The Final Lamp", bgImage: 'J-Image/dlatl.png' }
+        };
+
+        const CHARACTERS = {
+            PARK: { id: 'PARK', name: 'Park Chun-sik', role: 'Great Merchant', type: 'MERCHANT' },
+            KIM: { id: 'KIM', name: 'Kim Hak-do', role: 'Strategist', type: 'SCHOLAR' },
+            IM: { id: 'IM', name: 'Im Cheon-su', role: 'Guard Captain', type: 'WARRIOR' },
+            LEE: { id: 'LEE', name: 'Instructor Lee', role: 'Commander', type: 'COMMANDER' },
+            YUN: { id: 'YUN', name: 'Yun Bong-gil', role: 'Patriot', type: 'HERO' },
+            KIMGU: { id: 'KIMGU', name: 'Baekbeom Kim Gu', role: 'President', type: 'HERO' },
+            TANAKA: { id: 'TANAKA', name: 'Tanaka', role: 'Gendarmerie Chief', type: 'ENEMY' }
+        };
+
+        const StatBar = ({ label, value, max = 100, color = "bg-blue-600", icon: Icon }) => (
+            <div className="flex items-center gap-2 mb-1">
+                <div className="w-16 text-[10px] md:text-xs font-bold text-gray-400 flex items-center gap-1">
+                    {Icon && <Icon size={10} />}
+                    {label}
+                </div>
+                <div className="flex-1 h-2 md:h-3 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                    <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${Math.min((value / max) * 100, 100)}%` }}></div>
+                </div>
+                <div className="w-8 text-right text-[10px] md:text-xs font-mono">{value}</div>
+            </div>
+        );
+
+        const BackgroundVideo = ({ src, fadeToImage }) => {
+            const [videoState, setVideoState] = useState('playing');
+            const videoRef = useRef(null);
+            useEffect(() => { setVideoState('playing'); if (videoRef.current) { videoRef.current.currentTime = 0; videoRef.current.load(); } }, [src]);
+            const handleEnded = () => { if (fadeToImage) { setVideoState('black'); setTimeout(() => { setVideoState('faded'); }, 2000); } else { setVideoState('ended'); } };
+            return (
+                <React.Fragment>
+                    {videoState === 'playing' && <video ref={videoRef} src={src} autoPlay muted={false} playsInline onEnded={handleEnded} className="absolute inset-0 w-full h-full object-cover" />}
+                    {videoState === 'black' && <div className="absolute inset-0 bg-black z-10 transition-opacity duration-1000"></div>}
+                    {videoState === 'faded' && <div className="absolute inset-0 bg-black z-10 opacity-0 transition-opacity duration-1000 pointer-events-none"></div>}
+                </React.Fragment>
+            );
+        };
+
+        const VideoPlayer = ({ src, onFinish }) => {
+            const videoRef = useRef(null);
+            useEffect(() => { if (videoRef.current) { videoRef.current.play().catch(e => console.log("Auto-play blocked:", e)); } }, [src]);
+            return (
+                <div className="fixed inset-0 bg-black z-[100] flex items-center justify-center">
+                    <video ref={videoRef} src={src} className="w-full h-full object-cover" onEnded={onFinish} onClick={onFinish} playsInline />
+                    <div className="absolute bottom-4 right-4 text-white/50 text-xs cursor-pointer hover:text-white" onClick={onFinish}>SKIP &gt;&gt;</div>
+                </div>
+            );
+        };
+
+        const TitleScreen = ({ onSelect }) => {
+            return (
+                <div className="relative w-full h-screen flex overflow-hidden bg-black font-cinzel">
+                    <div className="relative flex-1 group transition-all duration-700 hover:flex-[1.5] border-r border-white/10 cursor-pointer overflow-hidden" onClick={() => onSelect('JOSEON')}>
+                        <div className="absolute inset-0">
+                            <video src="K-Video/Intro.mp4" className="w-full h-full object-cover opacity-50 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700" loop muted autoPlay playsInline />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90 group-hover:opacity-60 transition-opacity duration-500"></div>
+                        </div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-4">
+                            <h2 className="text-4xl md:text-5xl text-[#c5a059] tracking-[0.2em] mb-4 drop-shadow-2xl group-hover:scale-110 transition-transform duration-500 text-center">JOSEON</h2>
+                            <p className="text-gray-400 font-myeongjo tracking-widest text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-500 transform translate-y-4 group-hover:translate-y-0">Your Choice at the Crossroads of Fate</p>
+                            <button className="mt-8 px-8 py-2 border border-[#c5a059] text-[#c5a059] hover:bg-[#c5a059] hover:text-black transition-all duration-300 opacity-0 group-hover:opacity-100">KOREA</button>
+                        </div>
+                    </div>
+
+                    <div className="relative flex-1 group transition-all duration-700 hover:flex-[1.5] cursor-pointer overflow-hidden" onClick={() => window.location.href = 'ryukyu.html'}>
+                        <div className="absolute inset-0">
+                            <video src="Video/Intro.mp4" className="w-full h-full object-cover opacity-50 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700" loop muted autoPlay playsInline />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90 group-hover:opacity-60 transition-opacity duration-500"></div>
+                        </div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-4">
+                            <h2 className="text-4xl md:text-5xl text-teal-500 tracking-[0.2em] mb-4 drop-shadow-2xl group-hover:scale-110 transition-transform duration-500 text-center">RYUKYU</h2>
+                            <p className="text-gray-400 font-myeongjo tracking-widest text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-500 transform translate-y-4 group-hover:translate-y-0">Resurrection of the Forgotten Sea Kingdom</p>
+                            <button className="mt-8 px-8 py-2 border border-teal-500 text-teal-500 hover:bg-teal-500 hover:text-black transition-all duration-300 opacity-0 group-hover:opacity-100">START</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const TextIntro = ({ onFinish }) => {
+            const introTexts = [
+                "The winds of March still carried the chill of winter.",
+                "But colder than that was the silence that followed the storm sweeping through Tapgol Park."
+            ];
+            const [textIndex, setTextIndex] = useState(0);
+            const [fadeState, setFadeState] = useState('in');
+
+            useEffect(() => {
+                const timer = setTimeout(() => {
+                    setFadeState('out');
+                    setTimeout(() => {
+                        if (textIndex < introTexts.length - 1) {
+                            setTextIndex(prev => prev + 1);
+                            setFadeState('in');
+                        } else {
+                            onFinish();
+                        }
+                    }, 1000);
+                }, 4000);
+                return () => clearTimeout(timer);
+            }, [textIndex, onFinish]);
+
+            return (
+                <div className="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center font-myeongjo text-white overflow-hidden cursor-pointer" onClick={onFinish}>
+                    <div className="z-10 max-w-3xl px-8 text-center absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full">
+                        <p className={`text-xl md:text-3xl leading-relaxed transition-opacity duration-1000 ${fadeState === 'in' ? 'opacity-100' : 'opacity-0'}`} style={{ textShadow: '0 0 10px rgba(255,255,255,0.5)' }}>
+                            {introTexts[textIndex]}
+                        </p>
+                    </div>
+                    <div className="absolute bottom-8 text-white/30 text-xs tracking-widest uppercase animate-pulse">Click to skip</div>
+                </div>
+            );
+        };
+
+        function JoseonDawnStrategy() {
+            const [phase, setPhase] = useState('TITLE_SELECT');
+            const [videoSrc, setVideoSrc] = useState('');
+            const [onVideoFinish, setOnVideoFinish] = useState(null);
+            const [chapter, setChapter] = useState(1);
+            const [turn, setTurn] = useState(1);
+            const [maxAp, setMaxAp] = useState(3);
+            const [currentAp, setCurrentAp] = useState(3);
+            const [isNight, setIsNight] = useState(false);
+            const [currentScene, setCurrentScene] = useState(null);
+            const [log, setLog] = useState([]);
+
+            const [player, setPlayer] = useState({
+                name: 'Han Seo-jin',
+                stats: { int: 50, war: 30, cha: 40 },
+                funds: 30,
+                morale: 80,
+                comrades: [],
+                legacy: [],
+                flags: {},
+            });
+
+            useEffect(() => {
+                if (turn > 7) {
+                    alert("Too much time has passed. The opportunity has been lost. (7 Days Elapsed)");
+                    setPhase('TITLE_SELECT');
+                    setPlayer({ name: 'Han Seo-jin', stats: { int: 50, war: 30, cha: 40 }, funds: 30, morale: 80, comrades: [], legacy: [] });
+                    setChapter(1);
+                    setLog([]);
+                }
+            }, [turn]);
+
+            const checkLegacyBonus = (type) => player.legacy.find(l => l.autoSuccessType === type);
+
+            const handleChoice = (choice) => {
+                if (choice.type === 'MONEY') {
+                    if (player.funds < choice.cost) {
+                        alert("Insufficient funds!"); return;
+                    }
+                    setPlayer(p => ({ ...p, funds: p.funds - choice.cost }));
+                    nextScene(choice.success);
+                    return;
+                }
+                if (choice.req && !player.comrades.find(c => c.id === choice.req)) {
+                    alert("No comrade available to perform this operation!"); return;
+                }
+                if (choice.type && ['INT', 'WAR', 'CHA'].includes(choice.type)) {
+                    const statVal = player.stats[choice.type.toLowerCase()];
+                    const legacyBonus = checkLegacyBonus(choice.type);
+                    if (legacyBonus) {
+                        setLog(p => [...p, `✨ [Spirit] ${legacyBonus.name}: ${choice.type} check auto-success!`]);
+                        handleEffect({ ...choice.effect, morale: 10 });
+                        nextScene(choice.success);
+                        return;
+                    }
+                    if (statVal >= choice.diff + 20) {
+                        setLog(p => [...p, `🔥 [Overwhelming] ${choice.type} ${statVal} vs ${choice.diff} -> Guaranteed Success!`]);
+                        handleEffect({ ...choice.effect, funds: 15 });
+                        nextScene(choice.success);
+                        return;
+                    }
+                    const roll = Math.random() * 100;
+                    const chance = choice.fixedChance !== undefined ? choice.fixedChance : Math.min(95, 50 + (statVal - choice.diff) * 2);
+                    const success = roll < chance;
+                    setLog(p => [...p, `[Check] ${choice.text} (${Math.floor(chance)}% Chance) -> ${success ? 'Success' : 'Failure'}`]);
+                    if (success) nextScene(choice.success);
+                    else nextScene(choice.fail);
+                } else {
+                    if (choice.next) nextScene(choice.next);
+                    else nextScene(choice.success);
+                }
+            };
+
+            const handleEffect = (effect) => {
+                if (!effect) return;
+                if (effect.setFlag) setPlayer(p => ({ ...p, flags: { ...p.flags, ...effect.setFlag } }));
+                if (effect.action === 'SACRIFICE_COMPANION') {
+                    const sacrificeName = CHARACTERS[effect.charId].name;
+                    const remainingComrades = player.comrades.filter(c => c.id !== effect.charId);
+                    let autoSuccessType = effect.charId === 'IM' ? 'WAR' : (effect.charId === 'KIM' ? 'INT' : null);
+                    const newLegacy = { id: `LEGACY_${effect.charId}`, name: `${sacrificeName}'s Will`, desc: effect.legacyDesc, autoSuccessType, buff: effect.buff };
+                    setPlayer(p => ({ ...p, comrades: remainingComrades, legacy: [...p.legacy, newLegacy], stats: { int: p.stats.int + (effect.buff?.int || 0), war: p.stats.war + (effect.buff?.war || 0), cha: p.stats.cha + (effect.buff?.cha || 0) }, morale: 100 }));
+                } else if (effect.action === 'RECRUIT') {
+                    const char = CHARACTERS[effect.charId];
+                    setPlayer(p => ({ ...p, comrades: [...p.comrades, char], funds: p.funds + (effect.funds || 0), stats: { int: p.stats.int + (effect.statBonus?.int || 0), war: p.stats.war + (effect.statBonus?.war || 0), cha: p.stats.cha + (effect.statBonus?.cha || 0) } }));
+                } else if (effect.action === 'GAIN_RESOURCE') {
+                    setPlayer(p => ({ ...p, funds: p.funds + (effect.funds || 0), morale: Math.min(100, p.morale + (effect.morale || 0)), stats: { int: p.stats.int + (effect.int || 0), war: p.stats.war + (effect.war || 0), cha: p.stats.cha + (effect.cha || 0) } }));
+                } else if (effect.action === 'NEXT_CHAPTER') {
+                    setChapter(effect.chapter); setTurn(1); setCurrentAp(maxAp);
+                    setPlayer(p => ({ ...p, morale: p.morale + (effect.morale || 0), funds: p.funds + (effect.funds || 0), stats: { int: p.stats.int + (effect.int || 0), war: p.stats.war + (effect.war || 0), cha: p.stats.cha + (effect.cha || 0) } }));
+                } else if (effect.action === 'GAME_OVER' || effect.action === 'GAME_CLEAR') setPhase('ENDING');
+                else if (effect.action === 'RETURN_TO_TITLE') {
+                    setPhase('TITLE_SELECT');
+                    setPlayer({ name: 'Han Seo-jin', stats: { int: 50, war: 30, cha: 40 }, funds: 30, morale: 80, comrades: [], legacy: [], flags: {} });
+                    setChapter(1); setTurn(1); setLog([]);
+                }
+            };
+
+            const SCENES = {
+                'START_1': { id: 'START_1', type: 'NARRATION', text: "It begins from here.", image: 'J-Image/1919Home.jpg', effect: { action: 'START_GAME' } },
+                'MEET_PARK_1': { id: 'MEET_PARK_1', type: 'NARRATION', text: "The front of Park's silk shop was quiet. The displayed silks were brilliant, but the eyes of the passersby were hollow.\nI took a deep breath and opened the door.", image: 'J-Image/parkmeet1.jpg', next: 'MEET_PARK_2' },
+                'MEET_PARK_2': { id: 'MEET_PARK_2', type: 'DIALOG', npc: 'PARK', text: "My, my... who do we have here? Is that you, Mr. Han?", video: 'K-Video/HI.mp4', image: 'J-Image/mrpark.jpg', next: 'MEET_PARK_3' },
+                'MEET_PARK_3': { id: 'MEET_PARK_3', type: 'DIALOG', speaker: 'Han Seo-jin', text: "I'm here to buy the future, Master Park.\n(Places a pouch of silver coins on the table)", image: 'J-Image/mrpark.jpg', next: 'MEET_PARK_4' },
+                'MEET_PARK_4': { id: 'MEET_PARK_4', type: 'DIALOG', npc: 'PARK', text: "(Tapping his pipe)\nFuture? In a country like this? My business is failing and I'm catching flies. Don't waste your breath and just leave. I'll act as if I never saw this money.", image: 'J-Image/mrpark.jpg', next: 'MEET_PARK_CHOICE' },
+                'MEET_PARK_CHOICE': {
+                    id: 'MEET_PARK_CHOICE', type: 'CHOICE', text: "Park Chun-sik is a thorough businessman. Emotional pleas won't work.", image: 'J-Image/mrpark.jpg', choices: [
+                        { text: "[INT 50] Offer exclusive future rights (Higher Success)", type: 'INT', diff: 50, success: 'PARK_SUCCESS', fail: 'PARK_FAIL' },
+                        { text: "[CHA 80] Appeal to his patriotism (Difficult)", type: 'CHA', diff: 80, success: 'PARK_SUCCESS', fail: 'PARK_FAIL' },
+                        { text: "[Withdraw] Retreat for now (Failed to Recruit)", next: 'PARK_LEAVE' }
+                    ]
+                },
+                'PARK_SUCCESS': { id: 'PARK_SUCCESS', type: 'DIALOG', npc: 'PARK', text: "Ho... exclusive trading rights for the new nation?\nI thought you were just a scholar, but you're a better merchant than I am.", image: 'J-Image/mrpark.jpg', next: 'PARK_SUCCESS_2' },
+                'PARK_SUCCESS_2': { id: 'PARK_SUCCESS_2', type: 'NARRATION', text: "Park Chun-sik pulled a thick envelope from a drawer and handed it over.\n\"Take it. I'll contribute my funds. But remember, you'll have to pay back with heavy interest.\"", video: 'K-Video/parksuc.mp4', image: 'J-Image/mrpark.jpg', effect: { action: 'RECRUIT', charId: 'PARK', funds: 100 }, next: null },
+                'PARK_FAIL': { id: 'PARK_FAIL', type: 'DIALOG', npc: 'PARK', text: "Future? Look at this mess! Stop dreaming, Mr. Han. I never saw this..", video: 'K-Video/parkfail.mp4', image: 'J-Image/mrpark.jpg', effect: { action: 'FAIL_EVENT', morale: -10 }, next: null },
+                'PARK_LEAVE': { id: 'PARK_LEAVE', type: 'NARRATION', text: "This is not the time. I turned back, promising to return another day.", image: 'J-Image/mrpark.jpg', next: null },
+
+                'MEET_KIM_1': { id: 'MEET_KIM_1', type: 'NARRATION', text: "10 PM. The lights at Boseong School dormitory were out.\nI climbed over the wall, avoiding the guard. Room 304, a faint light was leaking from it.", image: 'J-Image/school.jpg', next: 'MEET_KIM_2' },
+                'MEET_KIM_2': { id: 'MEET_KIM_2', type: 'DIALOG', npc: 'KIM', text: "Sir? What brings you here? The military police are searching everywhere.", image: 'J-Image/mrkim.jpg', video: 'K-Video/sirwhat.mp4', next: 'MEET_KIM_3' },
+                'MEET_KIM_3': { id: 'MEET_KIM_3', type: 'DIALOG', speaker: 'Han Seo-jin', text: "Pack your bags, Hak-do. We're going to Manchuria.", image: 'J-Image/mrkim.jpg', next: 'MEET_KIM_4' },
+                'MEET_KIM_4': { id: 'MEET_KIM_4', type: 'DIALOG', npc: 'KIM', text: "(Crumpling manuscript paper)\nManchuria? To go there and recite Mencius again?\nMy comrades are dying during the day, while I'm digging into Japanese grammar at night... I can't stand myself!", image: 'J-Image/kimsad.jpg', next: 'MEET_KIM_CHOICE' },
+                'MEET_KIM_CHOICE': {
+                    id: 'MEET_KIM_CHOICE', type: 'CHOICE', text: "Kim Hak-do is trapped in the helplessness of an intellectual. He needs direction, not comfort.", image: 'J-Image/kimsad.jpg', choices: [
+                        { text: "[INT 60] Break the pen and offer a cause", type: 'INT', diff: 60, success: 'KIM_SUCCESS', fail: 'KIM_FAIL' },
+                        { text: "[CHA 90] Offer warm comfort (Guaranteed Failure)", type: 'CHA', diff: 90, success: 'KIM_FAIL', fail: 'KIM_FAIL' }
+                    ]
+                },
+                'KIM_SUCCESS': { id: 'KIM_SUCCESS', type: 'NARRATION', text: "I took the pen he was holding and snapped it in two.\n\"Let us not merely be written into history, let us be the ones who write it.\"\nAt those words, Hak-do's eyes wavered.", video: 'K-Video/brokenpen.mp4', image: 'J-Image/pen.png', next: 'KIM_SUCCESS_2' },
+                'KIM_SUCCESS_2': { id: 'KIM_SUCCESS_2', type: 'DIALOG', npc: 'KIM', text: "...I understand. I will break my brush and follow you, Teacher.", image: 'J-Image/OK.jpg', effect: { action: 'RECRUIT', charId: 'KIM', statBonus: { int: 20 } }, next: null },
+                'KIM_FAIL': { id: 'KIM_FAIL', type: 'DIALOG', npc: 'KIM', text: "I'm sorry... I'm not ready yet. I want to be alone.", image: 'J-Image/imsolo.jpg', effect: { action: 'FAIL_EVENT', morale: -10 }, next: null },
+
+                'ESCAPE_1': { id: 'ESCAPE_1', type: 'NARRATION', text: "Funds and talent are gathered. It's time to leave Gyeongseong.\nHowever, the gendarmerie's movements are suspicious.", image: 'J-Image/ESCAPE_1.jpg', next: 'ESCAPE_2' },
+                'ESCAPE_2': { id: 'ESCAPE_2', type: 'DIALOG', npc: 'TANAKA', text: "The rats are all gathered here.\nSurrender quietly!", image: 'J-Image/ESCAPE2.jpg', next: 'ESCAPE_CHOICE' },
+                'ESCAPE_CHOICE': {
+                    id: 'ESCAPE_CHOICE', type: 'CHOICE', text: "A moment of desperation. You must escape Gyeongseong.", image: 'J-Image/ESCAPE2.jpg', choices: [
+                        { text: "[INT 40] Escape by night via a secret route", type: 'INT', diff: 40, success: 'ESCAPE_SUCCESS', fail: 'ESCAPE_FAIL' },
+                        { text: "[WAR 70] Breakthrough the encirclement (Dangerous)", type: 'WAR', diff: 70, success: 'ESCAPE_SUCCESS', fail: 'ESCAPE_FAIL' }
+                    ]
+                },
+                'ESCAPE_SUCCESS': { id: 'ESCAPE_SUCCESS', type: 'NARRATION', text: "We climbed over the walls of Gyeongseong during the chaos.\nLeaving the lights of Gyeongseong behind, we ran North.\nThe cold wind of the Amnok River blows. Now, Manchuria.", video: 'K-Video/RUN.mp4', image: 'J-Image/home2.jpg', effect: { action: 'NEXT_CHAPTER', chapter: 2 }, next: null },
+                'ESCAPE_FAIL': { id: 'ESCAPE_FAIL', type: 'NARRATION', text: "Failed to break through... We were dragged to Seodaemun Prison.\nHistory ended here.", image: 'J-Image/ESCAPEFAIL.jpg', effect: { action: 'GAME_OVER' }, next: null },
+
+                'MEET_IM_1': { id: 'MEET_IM_1', type: 'NARRATION', text: "At the foot of Mt. Baekdu, in a blizzard-swept hut.\nWe sought out the legendary hunter, Im Cheon-su.", image: 'J-Image/legend.jpg', next: 'MEET_IM_2' },
+                'MEET_IM_2': { id: 'MEET_IM_2', type: 'DIALOG', npc: 'IM', text: "(Pointing a muzzle)\nIndependence? Can't eat that. Bullets are for beasts, not bodies. Get lost!", video: 'K-Video/realman.mp4', image: 'J-Image/angry.jpg', next: 'MEET_IM_CHOICE' },
+                'MEET_IM_CHOICE': {
+                    id: 'MEET_IM_CHOICE', type: 'CHOICE', text: "Im Cheon-su is cynical. You must melt his frozen heart.", image: 'J-Image/angry.jpg', choices: [
+                        { text: "[CHA 50] Talk about family and hometown", type: 'CHA', diff: 50, success: 'IM_SUCCESS', fail: 'IM_FAIL' },
+                        { text: "[WAR 90] Try to subdue him by force (Guaranteed Failure)", type: 'WAR', diff: 90, success: 'IM_FAIL', fail: 'IM_FAIL' }
+                    ]
+                },
+                'IM_SUCCESS': { id: 'IM_SUCCESS', type: 'DIALOG', npc: 'IM', text: "Damn it... eating food doesn't turn a beast into a human.\nFine. I'll charge the Japs' heads for my meal ticket.", image: 'J-Image/okim.jpg', effect: { action: 'RECRUIT', charId: 'IM', statBonus: { war: 30 } }, next: null },
+                'IM_FAIL': { id: 'IM_FAIL', type: 'DIALOG', npc: 'IM', text: "Too many words. Leave.", image: 'J-Image/angry.jpg', effect: { action: 'FAIL_EVENT', morale: -10 }, next: null },
+
+                'BATTLE_1': { id: 'BATTLE_1', type: 'NARRATION', text: "October 1920, Cheongsanri Valley.\nA Japanese punitive force of 5,000 led by Tanaka is closing in.", image: 'J-Image/japan.jpg', next: 'BATTLE_2' },
+                'BATTLE_2': { id: 'BATTLE_2', type: 'DIALOG', npc: 'LEE', text: "They are trapped like rats!", video: 'K-Video/rat.mp4', next: 'BATTLE_CHOICE' },
+                'BATTLE_CHOICE': {
+                    id: 'BATTLE_CHOICE', type: 'CHOICE', text: "Moment of decision. How will you fight?", image: 'J-Image/im&kim.jpg', choices: [
+                        { text: "[INT 60] Kim Hak-do's decoy strategy (Req: Kim)", type: 'INT', diff: 60, req: 'KIM', success: 'BATTLE_VICTORY', fail: 'BATTLE_DEFEAT' },
+                        { text: "[WAR 70] Im Cheon-su's frontal assault (Req: Im)", type: 'WAR', diff: 70, req: 'IM', success: 'BATTLE_VICTORY_COST', fail: 'BATTLE_DEFEAT' }
+                    ]
+                },
+                'BATTLE_VICTORY': { id: 'BATTLE_VICTORY', type: 'NARRATION', text: "A great victory! We annihilated the Japanese army.\nBut the cheers didn't last long.\n\nFollowing Japanese retaliation, compatriots in Gando were massacred (Gando Massacre),\nand we had to scatter with tears of blood.", image: 'J-Image/gotosanghai.jpg', effect: { action: 'NEXT_CHAPTER', chapter: 2.5 }, next: 'HISTORY_GAP_1' },
+                'BATTLE_VICTORY_COST': { id: 'BATTLE_VICTORY_COST', type: 'NARRATION', text: "We won, but the damage was heavy. Kim Hak-do's leg was severely injured...\nWe had to use military funds for emergency treatment.\n(-20 Funds, -30 Morale)", image: 'J-Image/kimhurt.png', effect: { action: 'NEXT_CHAPTER', chapter: 2.5, morale: -30, funds: -20 }, next: 'HISTORY_GAP_1' },
+                'BATTLE_DEFEAT': { id: 'BATTLE_DEFEAT', type: 'NARRATION', text: "Defeat. The Independence Army scattered and history was forgotten.", image: 'J-Image/ESCAPEFAIL.jpg', effect: { action: 'GAME_OVER' }, next: null },
+
+                'HISTORY_GAP_1': { id: 'HISTORY_GAP_1', type: 'NARRATION', text: "1921, we moved to Svobodny, Russia.\nBut we faced the tragedy of being disarmed and pointing guns at each other (Free City Incident).\n\nSurvivors returned to Shanghai, but the Provisional Government was divided between 'Diplomacy' and 'Armed Struggle'.", image: 'J-Image/russia.png', next: 'HISTORY_GAP_2' },
+                'HISTORY_GAP_2': { id: 'HISTORY_GAP_2', type: 'NARRATION', text: "10 years passed. 1931.\nThe Provisional Government was being forgotten.\nEvicted for failing to pay 30 won rent, eating cabbage scraps from the market...\nBut we never took down the sign 'Republic of Korea'.", image: 'J-Image/dontforget.png', effect: { action: 'NEXT_CHAPTER', chapter: 3, cha: 15, int: 10, morale: 10 }, next: null },
+
+                'MEET_KIMGU_1': { id: 'MEET_KIMGU_1', type: 'NARRATION', text: "1932 Shanghai French Concession. Provisional Government of the Republic of Korea.\nWe climbed to the second floor of the old building.", image: 'J-Image/dlatl.png', next: 'MEET_KIMGU_2' },
+                'MEET_KIMGU_2': { id: 'MEET_KIMGU_2', type: 'DIALOG', npc: 'KIMGU', text: "Welcome. You've worked hard on the long journey.\nI've heard much about the spirit you showed in Manchuria.", image: 'J-Image/kimgu.png', next: 'MEET_KIMGU_3' },
+                'MEET_KIMGU_3': { id: 'MEET_KIMGU_3', type: 'DIALOG', speaker: 'Han Seo-jin', text: "Mr. President, for independence, I do not value my life.", image: 'J-Image/kimgu.png', next: 'MEET_KIMGU_4' },
+                'MEET_KIMGU_4': { id: 'MEET_KIMGU_4', type: 'DIALOG', npc: 'KIMGU', text: "Thank you. Now we stand at the edge of a cliff.\nIf we don't show the world we are alive, independence will remain a dream forever.", image: 'J-Image/strongkimgu.png', effect: { action: 'RECRUIT', charId: 'KIMGU', statBonus: { cha: 30 }, morale: 50 }, next: null },
+
+                'PLAN_BOMB_1': { id: 'PLAN_BOMB_1', type: 'NARRATION', text: "The night before the mission, at a safe house.\nYun Bong-gil took out an old pocket watch and placed it on the table.", video: 'K-Video/yoon.mp4', image: 'J-Image/bomb.png', next: 'PLAN_BOMB_2' },
+                'PLAN_BOMB_2': { id: 'PLAN_BOMB_2', type: 'DIALOG', npc: 'YUN', text: "Sir, please exchange your watch with mine.\nMine is 6 won and yours is 2 won. Mine is better.", video: 'K-Video/yoon.mp4', image: 'J-Image/bomb.png', next: 'PLAN_BOMB_3' },
+                'PLAN_BOMB_3': { id: 'PLAN_BOMB_3', type: 'DIALOG', npc: 'YUN', text: "My watch will only be useful for another hour anyway.", video: 'K-Video/yoon.mp4', image: 'J-Image/bomb.png', effect: { setFlag: { bomb_planned: true } }, next: null },
+                'PLAN_BOMB_CHOICE': {
+                    id: 'PLAN_BOMB_CHOICE', type: 'CHOICE', text: "High-performance bombs are needed for the deed.", image: 'J-Image/gang.jpg', choices: [
+                        { text: "[Funds] Spend all wealth to buy bombs (100 Coins)", type: 'MONEY', cost: 100, success: 'BOMB_READY', fail: 'BOMB_FAIL' },
+                        { text: "[CHA 90] Persuade the black market merchant (Very Hard)", type: 'CHA', diff: 90, success: 'BOMB_READY', fail: 'BOMB_FAIL' }
+                    ]
+                },
+                'BOMB_READY': { id: 'BOMB_READY', type: 'NARRATION', text: "Lunchbox and water bottle bombs secured.\nYun Bong-gil's eyes filled with determination.\n\"I shall see you in the afterlife.\"", image: 'J-Image/imready.jpg', effect: { action: 'RECRUIT', charId: 'YUN', statBonus: { war: 50 } }, next: null },
+                'BOMB_FAIL': { id: 'BOMB_FAIL', type: 'NARRATION', text: "Lack of funds forced us to get duds...\nAnxiety looms.", image: 'J-Image/bombfail.jpg', effect: { action: 'FAIL_EVENT', morale: -20 }, next: null },
+
+                'FINAL_MISSION_1': { id: 'FINAL_MISSION_1', type: 'NARRATION', text: "April 29, 1932, entrance of Hongkou Park.\nThe gendarmerie blocks the Waitan Bridge in the rain.", image: 'J-Image/bridge.jpg', next: 'FINAL_MISSION_2' },
+                'FINAL_MISSION_2': { id: 'FINAL_MISSION_2', type: 'DIALOG', npc: 'TANAKA', text: "Han Seo-jin... it's been 13 years. Persistent rats.\nI'll end it here!", image: 'J-Image/bridge.jpg', next: 'FINAL_MISSION_CHOICE' },
+                'FINAL_MISSION_CHOICE': {
+                    id: 'FINAL_MISSION_CHOICE', type: 'CHOICE', text: "The final showdown. You must buy time for Yun Bong-gil to enter.", image: 'J-Image/byeim.jpg', choices: [
+                        { text: "[Sacrifice] Im Cheon-su self-detonates with Tanaka (Req: Im)", type: 'CHOICE', req: 'IM', success: 'MISSION_SUCCESS_SAD', fail: 'MISSION_FAIL' },
+                        { text: "[WAR] Frontal Breakthrough (1% Success Chance)", type: 'WAR', fixedChance: 1, success: 'MISSION_SUCCESS_HARD', fail: 'MISSION_FAIL' }
+                    ]
+                },
+                'MISSION_SUCCESS_SAD': { id: 'MISSION_SUCCESS_SAD', type: 'NARRATION', text: "Im Cheon-su grabbed Tanaka and dove into the river below.\n\"Captain! I've paid my dues!\"\n\nHis cry was buried by the rain. Heartbroken, but my fear vanished.", image: 'J-Image/respect.jpg', effect: { action: 'SACRIFICE_COMPANION', charId: 'IM', legacyDesc: "The bravery of the Mt. Baekdu tiger dwells within, all war checks auto-succeed.", buff: { war: 50 } }, next: 'YUN_ACTION_1' },
+                'MISSION_SUCCESS_HARD': { id: 'MISSION_SUCCESS_HARD', type: 'NARRATION', text: "After a fierce fight, the blockade was broken.\nYun Bong-gil threw the water bottle bomb at the stage.\nWith a massive explosion, the name of Joseon reached the world.", next: 'STORY_BRIDGE_1' },
+                'YUN_ACTION_1': { id: 'YUN_ACTION_1', type: 'NARRATION', text: "Rain was drizzling at Hongkou Park. Amidst the 'Kimigayo' anthem, the crowd bowed to the stage.\n\nIn that silence, Yun Bong-gil stepped out firmly from the crowd.", image: 'J-Image/party.jpg', next: 'YUN_ACTION_2' },
+                'YUN_ACTION_2': { id: 'YUN_ACTION_2', type: 'NARRATION', text: "As the anthem ended, he ignited the fuse and threw the bomb.\n\n\"Long Live Joseon Independence!!\"\n\nA roar shook heaven and earth, striking the heart of Japanese imperialism.", image: 'J-Image/shoot.jpg', next: 'STORY_BRIDGE_1' },
+
+                'STORY_BRIDGE_1': { id: 'STORY_BRIDGE_1', type: 'NARRATION', text: "The impact was great, but the retaliation was cruel.\nAvoiding the surveillance, the Provisional Government had to leave Shanghai.\n\nIt was the start of a long wandering until liberation.", image: 'J-Image/1932.jpg', next: 'STORY_BRIDGE_2' },
+                'STORY_BRIDGE_2': { id: 'STORY_BRIDGE_2', type: 'NARRATION', text: "Through Hangzhou, Changsha, Guangzhou, and beyond.\n\nThousands of miles of escape. In hunger and fear, we kept the government sign and the fire of independence alive.", image: 'J-Image/1932~1940.jpg', next: 'STORY_BRIDGE_3' },
+                'STORY_BRIDGE_3': { id: 'STORY_BRIDGE_3', type: 'NARRATION', text: "1940, we finally anchored in Chongqing.\nAnd there, the 'Korean Liberation Army' was founded.\n\nWe were no longer fugitives. We had become a proper army to face the enemy.", image: 'J-Image/koreasoldier.jpg', next: 'EPILOGUE_1' },
+                'MISSION_FAIL': { id: 'MISSION_FAIL', type: 'NARRATION', text: "Tanaka stopped us. Yun Bong-gil was arrested. Our last spark faded.", image: 'J-Image/ESCAPEFAIL.jpg', effect: { action: 'GAME_OVER' }, next: null },
+
+                'EPILOGUE_1': { id: 'EPILOGUE_1', type: 'NARRATION', text: "Time passed.\nAugust 15, 1945, Noon.\nThe Emperor's surrender played on the radio, and Gyeongseong was covered in flags.", image: 'J-Image/rhkdqhr.jpg', next: 'EPILOGUE_2' },
+                'EPILOGUE_2': { id: 'EPILOGUE_2', type: 'DIALOG', speaker: 'Han Seo-jin', text: "(Sitting in a Jongno teahouse)\n\"Do you hear it... we have finally seen this day come.\"", image: 'J-Image/rhkdqhr1.jpg', next: 'EPILOGUE_3' },
+                'EPILOGUE_3': { id: 'EPILOGUE_3', type: 'NARRATION', text: "Funds are gone, the body is old, and many comrades have left.\n\nBut they live as stars in my heart and in the history of the liberated nation.", image: 'J-Image/korea.jpg', effect: { action: 'RETURN_TO_TITLE' }, next: null },
+
+                'WORK_1': {
+                    id: 'WORK_1', type: 'CHOICE', text: "You must secure funds.", image: 'J-Image/dlstho.jpg', choices: [
+                        { text: "[INT 60] Activate Yeontong-je (High Reward)", type: 'INT', diff: 60, success: 'WORK_YEONTONG', fail: 'WORK_NORMAL' },
+                        { text: "[Labor] Work at Print Shop (Guaranteed)", type: 'MONEY', cost: 0, success: 'WORK_NORMAL', fail: 'WORK_NORMAL' }
+                    ]
+                },
+                'WORK_YEONTONG': { id: 'WORK_YEONTONG', type: 'NARRATION', text: "Secured massive independence funds via Yeontong-je.", image: 'J-Image/money.png', effect: { action: 'GAIN_RESOURCE', funds: 50, morale: 20 }, next: null },
+                'WORK_NORMAL': { id: 'WORK_NORMAL', type: 'NARRATION', text: "Spent the day smelling ink and carrying flyers.", image: 'J-Image/dlstho.jpg', effect: { action: 'GAIN_RESOURCE', funds: 15, morale: -5 }, next: null },
+                'INFO_1': { id: 'INFO_1', type: 'NARRATION', text: "A tavern in Jongno backalley. All rumors gather here.", image: 'J-Image/info.jpg', next: 'INFO_2' },
+                'INFO_2': { id: 'INFO_2', type: 'NARRATION', text: "\"Gendarmerie are watching Boseong School...\"\n\"Merchant Park is rumored to be the funding source.\"", image: 'J-Image/info.jpg', effect: { action: 'GAIN_RESOURCE', int: 5, morale: 5, setFlag: { discovered_school: true } }, next: null },
+                'SPEECH_1': { id: 'SPEECH_1', type: 'NARRATION', text: "Gathered people in Jongno for speeches.\n\"Our language is our soul!\"", image: 'J-Image/cha.png', next: 'SPEECH_2' },
+                'SPEECH_2': { id: 'SPEECH_2', type: 'NARRATION', text: "Moved the people's hearts. My voice carries power.", image: 'J-Image/cha.png', effect: { action: 'GAIN_RESOURCE', cha: 5, morale: -5 }, next: null }
+            };
+
+            const startScene = (sceneId) => { if (SCENES[sceneId]) { setCurrentScene(SCENES[sceneId]); setPhase('SCENE'); } else { setPhase('GAME'); } };
+            const nextScene = (nextId) => { if (!nextId) { setPhase('GAME'); setCurrentScene(null); return; } setCurrentScene(SCENES[nextId]); };
+            const restTurn = () => { setIsNight(true); setTimeout(() => { setTurn(p => p + 1); setCurrentAp(maxAp); setPlayer(p => ({ ...p, morale: Math.min(100, p.morale + 10) })); setTimeout(() => { setIsNight(false); }, 1500); }, 500); };
+            const spendAp = (cost = 1) => { if (currentAp < cost) { alert("Insufficient AP"); return false; } setCurrentAp(p => p - cost); return true; };
+
+            const TopScreen = () => (
+                <div className="fixed top-0 left-0 w-full bg-gradient-to-b from-black/90 to-transparent p-4 z-50 flex justify-between text-white border-b border-white/10">
+                    <div className="flex items-center gap-4">
+                        <div className="font-bold text-lg text-[#ffd700] drop-shadow-md">{CHAPTERS[chapter].location}</div>
+                        <div className="text-sm text-gray-300">Day {turn}</div>
+                        <div className="flex gap-1">{[...Array(maxAp)].map((_, i) => <div key={i} className={`w-3 h-3 rounded-full border border-white/50 ${i < currentAp ? 'bg-[#ffd700]' : 'bg-transparent'}`}></div>)}</div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2"><Coins size={14} className="text-[#ffd700]" /><span className="font-mono">{player.funds}</span></div>
+                        <div className="flex items-center gap-2"><Activity size={14} className="text-red-400" /><span className="font-mono">{player.morale}</span></div>
+                    </div>
+                </div>
+            );
+
+            const BottomScreen = ({ children }) => (
+                <div className="fixed bottom-0 left-0 w-full h-[35vh] bg-gradient-to-t from-black via-black/90 to-transparent z-50 flex flex-col p-6 animate-fade-in">
+                    {isNight && <div className="absolute inset-0 bg-black/95 z-[60] flex items-center justify-center flex-col animate-fade-in"><Moon size={48} className="text-[#ffd700] mb-4 animate-bounce" /><h2 className="text-white text-2xl font-bold font-serif mb-2">A day has passed</h2></div>}
+                    {children}
+                </div>
+            );
+
+            const renderGameControls = () => {
+                const hasPark = player.comrades.some(c => c.id === 'PARK');
+                const hasKim = player.comrades.some(c => c.id === 'KIM');
+                const hasIm = player.comrades.some(c => c.id === 'IM');
+                const hasKimGu = player.comrades.some(c => c.id === 'KIMGU');
+                const hasYun = player.comrades.some(c => c.id === 'YUN');
+
+                return (
+                    <div className="flex-1 flex flex-col md:flex-row gap-4 h-full overflow-hidden">
+                        <div className="w-full md:w-1/3 bg-black/60 p-4 rounded-lg border border-white/10 backdrop-blur-md overflow-y-auto">
+                            <div className="mb-4 text-center">
+                                <div className="font-bold text-[#ffd700] text-xl font-cinzel mb-2 uppercase">{player.name}</div>
+                                <div className="space-y-1"><StatBar label="FUNDS" value={player.funds} max={200} color="bg-[#ffd700]" icon={Coins} /><StatBar label="MORALE" value={player.morale} max={100} color="bg-red-500" icon={Activity} /></div>
+                            </div>
+                            <div className="mb-4">
+                                <div className="text-xs font-bold text-gray-500 mb-2 border-b border-gray-700 pb-1">ABILITIES</div>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div className="bg-black/40 p-2 rounded text-center border border-gray-700"><BookOpen size={14} className="mx-auto text-blue-400 mb-1" /><span className={`text-xs font-bold ${checkLegacyBonus('INT') ? 'text-[#ffd700] stat-highlight' : 'text-gray-300'}`}>{player.stats.int}</span></div>
+                                    <div className="bg-black/40 p-2 rounded text-center border border-gray-700"><Sword size={14} className="mx-auto text-red-400 mb-1" /><span className={`text-xs font-bold ${checkLegacyBonus('WAR') ? 'text-[#ffd700] stat-highlight' : 'text-gray-300'}`}>{player.stats.war}</span></div>
+                                    <div className="bg-black/40 p-2 rounded text-center border border-gray-700"><Users size={14} className="mx-auto text-green-400 mb-1" /><span className={`text-xs font-bold ${checkLegacyBonus('CHA') ? 'text-[#ffd700] stat-highlight' : 'text-gray-300'}`}>{player.stats.cha}</span></div>
+                                </div>
+                            </div>
+                            <div className="mb-4">
+                                <div className="text-xs font-bold text-gray-500 mb-2 border-b border-gray-700 pb-1">LEGACY</div>
+                                <div className="space-y-1">
+                                    {player.legacy.length === 0 ? <div className="text-xs text-gray-600 italic text-center py-2">No fallen comrades yet.</div> : player.legacy.map((leg, idx) => (
+                                        <div key={idx} className="bg-[#ffd700]/10 border border-[#ffd700]/30 rounded p-2 animate-pulse">
+                                            <div className="flex items-center gap-2"><Star size={12} className="text-[#ffd700]" /><span className="text-xs font-bold text-[#ffd700]">{leg.name}</span></div>
+                                            <div className="text-[10px] text-gray-400 mt-1">"{leg.desc}"</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 flex flex-col gap-4">
+                            <div className="flex-1 bg-black/60 p-4 rounded-lg border border-white/10 backdrop-blur-md overflow-y-auto">
+                                <div className="text-sm font-bold text-[#ffd700] mb-3 border-b border-gray-700 pb-2 flex items-center gap-2 font-cinzel"><Flag size={14} /> MISSIONS</div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {chapter === 1 && (
+                                        <React.Fragment>
+                                            {player.funds >= 100 && player.flags?.discovered_school && (
+                                                <button onClick={() => { if (spendAp(1)) startScene('MEET_PARK_1'); }} disabled={hasPark} className={`p-4 border rounded text-left transition-all group ${hasPark ? 'border-gray-700 opacity-50 bg-black/40' : 'border-[#ffd700]/50 bg-black/40 hover:bg-[#ffd700]/20 hover:border-[#ffd700]'}`}>
+                                                    <div className="font-bold text-gray-200 text-sm group-hover:text-[#ffd700]">Park's Silk Shop</div>
+                                                    <div className="text-xs text-gray-500">{hasPark ? "Recruited" : "Secure Funds (AP 1)"}</div>
+                                                </button>
+                                            )}
+                                            {player.flags?.discovered_school && (
+                                                <button onClick={() => { if (spendAp(1)) startScene('MEET_KIM_1'); }} disabled={hasKim} className={`p-4 border rounded text-left transition-all group ${hasKim ? 'border-gray-700 opacity-50 bg-black/40' : 'border-[#ffd700]/50 bg-black/40 hover:bg-[#ffd700]/20 hover:border-[#ffd700]'}`}>
+                                                    <div className="font-bold text-gray-200 text-sm group-hover:text-[#ffd700]">Boseong Dormitory</div>
+                                                    <div className="text-xs text-gray-500">{hasKim ? "Recruited" : "Persuade Kim (AP 1)"}</div>
+                                                </button>
+                                            )}
+                                            {hasPark && hasKim && <button onClick={() => { if (spendAp(1)) startScene('ESCAPE_1'); }} className="p-4 border border-red-500/50 rounded text-left transition-all bg-red-900/20 hover:bg-red-900/40 hover:border-red-500 animate-pulse col-span-1 md:col-span-2"><div className="font-bold text-red-400 text-sm">★ Escape Gyeongseong</div><div className="text-xs text-red-300/70">Next Chapter (AP 1)</div></button>}
+                                        </React.Fragment>
+                                    )}
+                                    {chapter === 2 && (
+                                        <React.Fragment>
+                                            <button onClick={() => { if (spendAp(1)) startScene('MEET_IM_1'); }} disabled={hasIm} className={`p-4 border rounded text-left transition-all group ${hasIm ? 'border-gray-700 opacity-50 bg-black/40' : 'border-[#ffd700]/50 bg-black/40 hover:bg-[#ffd700]/20 hover:border-[#ffd700]'}`}><div className="font-bold text-gray-200 text-sm group-hover:text-[#ffd700]">Mt. Baekdu Hut</div><div className="text-xs text-gray-500">{hasIm ? "Recruited" : "Persuade Im (AP 1)"}</div></button>
+                                            {hasIm && <button onClick={() => { if (spendAp(2)) startScene('BATTLE_1'); }} className="p-4 border border-red-500/50 rounded text-left transition-all bg-red-900/20 hover:bg-red-900/40 hover:border-red-500 animate-pulse col-span-1 md:col-span-2"><div className="font-bold text-red-400 text-sm">★ Battle of Cheongsanri</div><div className="text-xs text-red-300/70">Time for Decisive Battle (AP 2)</div></button>}
+                                        </React.Fragment>
+                                    )}
+                                    {chapter === 3 && (
+                                        <React.Fragment>
+                                            <button onClick={() => { if (spendAp(1)) startScene('MEET_KIMGU_1'); }} disabled={hasKimGu} className={`p-4 border rounded text-left transition-all group ${hasKimGu ? 'border-gray-700 opacity-50 bg-black/40' : 'border-[#ffd700]/50 bg-black/40 hover:bg-[#ffd700]/20 hover:border-[#ffd700]'}`}><div className="font-bold text-gray-200 text-sm group-hover:text-[#ffd700]">Provisional Gov.</div><div className="text-xs text-gray-500">{hasKimGu ? "Recruited" : "Meet Kim Gu (AP 1)"}</div></button>
+                                            {!hasYun && !player.flags?.bomb_planned && (
+                                                <button onClick={() => { if (spendAp(1)) startScene('PLAN_BOMB_1'); }} className={`p-4 border rounded text-left transition-all group border-[#ffd700]/50 bg-black/40 hover:bg-[#ffd700]/20 hover:border-[#ffd700]`}>
+                                                    <div className="font-bold text-gray-200 text-sm group-hover:text-[#ffd700]">Safe House</div>
+                                                    <div className="text-xs text-gray-500">Prepare Action (AP 1)</div>
+                                                </button>
+                                            )}
+                                            {player.flags?.bomb_planned && !hasYun && (
+                                                <button onClick={() => { if (spendAp(1)) startScene('PLAN_BOMB_CHOICE'); }} className="p-4 border border-red-500/50 rounded text-left transition-all bg-red-900/20 hover:bg-red-900/40 hover:border-red-500 animate-pulse">
+                                                    <div className="font-bold text-red-400 text-sm">★ Execute Mission</div>
+                                                    <div className="text-xs text-red-300/70">Yun Bong-gil's Decision (AP 1)</div>
+                                                </button>
+                                            )}
+                                            {hasKimGu && hasYun && <button onClick={() => { if (spendAp(2)) startScene('FINAL_MISSION_1'); }} className="p-4 border border-red-500/50 rounded text-left transition-all bg-red-900/20 hover:bg-red-900/40 hover:border-red-500 animate-pulse col-span-1 md:col-span-2"><div className="font-bold text-red-400 text-sm">★ Hongkou Action</div><div className="text-xs text-red-300/70">The Final Strike (AP 2)</div></button>}
+                                        </React.Fragment>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="h-24 bg-black/60 p-3 rounded-lg border border-white/10 backdrop-blur-md flex gap-2 overflow-x-auto">
+                                <div className="flex-none w-32 flex flex-col gap-1 items-center justify-center border border-pink-700 rounded hover:bg-white/5 cursor-pointer" onClick={() => { if (spendAp(1)) startScene('SPEECH_1'); }}><div className="text-xs font-bold text-gray-300">Speech</div><div className="text-[10px] text-pink-400">CHA +5</div></div>
+                                <div className="flex-none w-32 flex flex-col gap-1 items-center justify-center border border-gray-700 rounded hover:bg-white/5 cursor-pointer" onClick={() => { if (spendAp(1)) startScene('WORK_1'); }}><div className="text-xs font-bold text-gray-300">Funds</div><div className="text-[10px] text-yellow-500">Secure Resources</div></div>
+                                <div className="flex-none w-32 flex flex-col gap-1 items-center justify-center border border-gray-700 rounded hover:bg-white/5 cursor-pointer" onClick={() => { if (spendAp(1)) startScene('INFO_1'); }}><div className="text-xs font-bold text-gray-300">Intel</div><div className="text-[10px] text-blue-400">INT +5</div></div>
+                                <div className="flex-none w-32 flex flex-col gap-1 items-center justify-center border border-green-800 rounded bg-green-900/20 hover:bg-green-900/40 cursor-pointer" onClick={restTurn}><div className="text-xs font-bold text-green-400">Rest</div><div className="text-[10px] text-green-300/50">End Turn</div></div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderSceneContent = () => {
+                if (!currentScene) return null;
+                const isNarration = currentScene.type === 'NARRATION';
+                const isDialog = currentScene.type === 'DIALOG';
+                const isChoice = currentScene.type === 'CHOICE';
+
+                return (
+                    <div className="flex-1 flex flex-col justify-end overflow-y-auto">
+                        <div className="w-full max-w-4xl mx-auto">
+                            {isDialog && (
+                                <div className="animate-fade-in">
+                                    <div className="text-[#ffd700] text-lg font-bold mb-2 font-cinzel tracking-wider">{currentScene.speaker || (currentScene.npc ? CHARACTERS[currentScene.npc].name : "System")}</div>
+                                    <p className="text-white text-xl md:text-2xl font-myeongjo leading-relaxed whitespace-pre-line drop-shadow-md">"{currentScene.text}"</p>
+                                </div>
+                            )}
+                            {isNarration && (
+                                <div className="text-center pb-8 animate-fade-in">
+                                    <p className="text-white text-xl md:text-2xl font-myeongjo leading-relaxed whitespace-pre-line drop-shadow-md">{currentScene.text}</p>
+                                </div>
+                            )}
+                            {isChoice && (
+                                <div className="animate-fade-in w-full max-w-2xl mx-auto">
+                                    <p className="text-gray-300 text-center mb-6 italic">{currentScene.text}</p>
+                                    <div className="flex flex-col gap-3">
+                                        {currentScene.choices.map((choice, idx) => {
+                                            const legacyActive = choice.type && checkLegacyBonus(choice.type);
+                                            return (
+                                                <button key={idx} onClick={() => handleChoice(choice)} className={`w-full p-4 border rounded backdrop-blur-sm text-left flex justify-between items-center group transition-all ${legacyActive ? 'bg-[#ffd700]/20 border-[#ffd700]' : 'bg-black/60 border-white/30 hover:bg-[#ffd700] hover:text-black'}`}>
+                                                    <span className="font-myeongjo text-lg group-hover:font-bold">{idx + 1}. {choice.text} {legacyActive && " [Legacy: Auto-Success]"}</span>
+                                                    <div className="flex gap-2">
+                                                        {choice.diff && <span className="text-xs bg-black/50 text-gray-300 px-2 py-1 rounded border border-white/10">{Math.min(95, 50 + (player.stats[choice.type.toLowerCase()] - choice.diff) * 2)}%</span>}
+                                                        {choice.type === 'MONEY' && <span className="text-xs bg-yellow-900/50 text-yellow-200 px-2 py-1 rounded border border-yellow-500/30">-{choice.cost} Coins</span>}
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        {!isChoice && (
+                            <div className="mt-6 flex justify-end w-full max-w-4xl mx-auto">
+                                <button onClick={() => { handleEffect(currentScene.effect); if (currentScene.effect?.action !== 'RETURN_TO_TITLE') nextScene(currentScene.next); }} className="px-8 py-3 bg-[#ffd700] text-black font-bold rounded hover:bg-white transition-colors flex items-center gap-2 animate-pulse">Next <ChevronRight size={18} /></button>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            return (
+                <React.Fragment>
+                    <GlobalStyles />
+                    <div className="w-full min-h-screen bg-[#111] flex flex-col items-center justify-center">
+                        {phase === 'TITLE_SELECT' && <TitleScreen onSelect={(nation) => { if (nation === 'JOSEON') setPhase('VIDEO_INTRO'); else alert('Coming soon...'); }} />}
+
+                        {phase !== 'TITLE_SELECT' && (
+                            <div className="relative w-full h-screen overflow-hidden bg-black p-4 flex flex-col items-center justify-center">
+                                {phase === 'TEXT_INTRO' && <TextIntro onFinish={() => setPhase('VIDEO_INTRO')} />}
+                                {phase === 'VIDEO_INTRO' && <VideoPlayer src="K-Video/Intro.mp4" onFinish={() => startScene('START_1')} />}
+                                {phase === 'VIDEO_PLAYBACK' && <VideoPlayer src={videoSrc} onFinish={() => { if (onVideoFinish) { onVideoFinish(); setOnVideoFinish(null); } else { setPhase('GAME'); } }} />}
+
+                                {phase !== 'TEXT_INTRO' && phase !== 'VIDEO_INTRO' && phase !== 'VIDEO_PLAYBACK' && (
+                                    <div className="relative w-full h-full overflow-hidden bg-black rounded-lg shadow-2xl">
+                                        <div className="absolute inset-0 z-0">
+                                            {currentScene?.image === 'black' ? <div className="absolute inset-0 w-full h-full bg-black"></div> : <img src={currentScene?.image || (CHAPTERS[chapter].bgImage || 'J-Image/1919Home.jpg')} alt="Background" className="absolute inset-0 w-full h-full object-cover opacity-80" />}
+                                            {currentScene?.video && <BackgroundVideo src={currentScene.video} fadeToImage={currentScene.id === 'ESCAPE_SUCCESS'} />}
+                                            <div className="absolute inset-0 bg-black/30"></div>
+                                        </div>
+                                        <TopScreen />
+                                        <BottomScreen>
+                                            {phase === 'GAME' && renderGameControls()}
+                                            {phase === 'SCENE' && renderSceneContent()}
+                                            {phase === 'ENDING' && (
+                                                <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                                                    <h2 className="text-3xl font-bold text-[#ffd700] mb-4 font-cinzel">THE END</h2>
+                                                    <div className="bg-black/50 p-6 rounded-lg border border-white/10 w-full max-w-sm mb-6 backdrop-blur-sm">
+                                                        <div className="flex justify-between text-white font-bold mb-2"><span>Final Fame</span><span>{player.stats.cha}</span></div>
+                                                        <div className="flex justify-between text-white font-bold"><span>Total Funds</span><span>{player.funds} Coins</span></div>
+                                                    </div>
+                                                    <p className="text-sm text-gray-300 mb-8 italic">Your name will be etched into history forever.</p>
+                                                    <button onClick={() => { setPhase('TITLE_SELECT'); setPlayer({ name: 'Han Seo-jin', stats: { int: 50, war: 30, cha: 40 }, funds: 30, morale: 80, comrades: [], legacy: [], flags: {} }); setChapter(1); setTurn(1); }} className="px-8 py-3 bg-[#ffd700] text-black font-bold rounded hover:bg-white transition-colors animate-pulse">Return to Title</button>
+                                                </div>
+                                            )}
+                                        </BottomScreen>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </React.Fragment>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<JoseonDawnStrategy />);
+    </script>
+</body>
+
+</html>

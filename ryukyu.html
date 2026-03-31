@@ -1,0 +1,2290 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ryukyu: The Jade Memory</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* Scrollbar Customization */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #2dd4bf;
+            border-radius: 3px;
+        }
+
+        /* Animations */
+        .animate-fade-in {
+            animation: fadeIn 1s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .item-pop {
+            animation: pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes pop {
+            0% {
+                transform: scale(0.5);
+                opacity: 0;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .stat-highlight {
+            animation: pulseGolden 2s infinite;
+        }
+
+        @keyframes pulseGolden {
+            0% {
+                text-shadow: 0 0 5px rgba(45, 212, 191, 0.5);
+            }
+
+            50% {
+                text-shadow: 0 0 20px rgba(45, 212, 191, 1);
+            }
+
+            100% {
+                text-shadow: 0 0 5px rgba(45, 212, 191, 0.5);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- ICONS ---
+        const IconMock = (char) => (props) => <span {...props} style={{ display: 'inline-block', fontSize: '1.2em', lineHeight: '1', ...props.style }}>{char}</span>;
+
+        // Common Icons
+        const Coins = IconMock('💰');
+        const Activity = IconMock('❤️');
+        const Moon = IconMock('🌙');
+        const Flag = IconMock('🚩');
+        const ChevronRight = IconMock('>');
+        const Star = IconMock('⭐');
+        const Lock = IconMock('🔒');
+        const Check = IconMock('✅');
+
+        // Ryukyu Specific Icons
+        const IdentityIcon = IconMock('🟦');
+        const JapanIcon = IconMock('🟥');
+        const QingIcon = IconMock('🟨');
+        const ItemIcon = IconMock('🎒');
+        const ArrowRight = IconMock('➡️');
+        const X = IconMock('❌');
+
+        // --- GLOBAL STYLES ---
+        const GlobalStyles = () => (
+            <style>{`
+            @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Serif+KR:wght@400;700&display=swap');
+            
+            .font-cinzel { font-family: 'Cinzel', serif; }
+            .font-myeongjo { font-family: 'Nanum Myeongjo', serif; }
+            .font-serif-kr { font-family: 'Noto Serif KR', serif; }
+            
+            .game-btn { transition: all 0.3s ease; }
+            .game-btn:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(100%); }
+
+            /* Dance Image Popup Animation */
+            @keyframes dancePop {
+                0% { transform: scale(1); filter: brightness(1); }
+                50% { transform: scale(1.02); filter: brightness(1.1); }
+                100% { transform: scale(1); filter: brightness(1); }
+            }
+            .dance-image-anim {
+                animation: dancePop 0.4s ease-out forwards;
+            }
+            `}</style>
+        );
+
+        // --- RHYTHM GAME COMPONENT ---
+        const RhythmGame = ({ onComplete }) => {
+            const [gameState, setGameState] = useState('ready');
+            const [score, setScore] = useState(0);
+            const [combo, setCombo] = useState(0);
+            const [notes, setNotes] = useState([]);
+            const [feedback, setFeedback] = useState("");
+            const [timeLeft, setTimeLeft] = useState(40);
+            const [hitEffects, setHitEffects] = useState([false, false, false, false]);
+            const [currentImage, setCurrentImage] = useState(null);
+            const [imgError, setImgError] = useState(false);
+            const [keyPressCount, setKeyPressCount] = useState(0);
+
+            const notesRef = useRef([]);
+            const reqRef = useRef();
+            const lastSpawnTime = useRef(0);
+
+            // Refs for game logic
+            const scoreRef = useRef(0);
+            const missRef = useRef(0);
+            const audioRef = useRef(null);
+
+            // Cleanup audio on unmount
+            useEffect(() => {
+                return () => {
+                    if (audioRef.current) {
+                        audioRef.current.pause();
+                        audioRef.current.currentTime = 0;
+                    }
+                };
+            }, []);
+
+            const LANES = ['ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowRight'];
+            const SYMBOLS = ['⬅️', '⬆️', '⬇️', '➡️'];
+
+            const COLORS = [
+                'text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,1)]',
+                'text-green-400 drop-shadow-[0_0_15px_rgba(74,222,128,1)]',
+                'text-yellow-300 drop-shadow-[0_0_15px_rgba(253,224,71,1)]',
+                'text-pink-400 drop-shadow-[0_0_15px_rgba(244,114,182,1)]'
+            ];
+
+            const DANCE_IMAGES = [
+                'Image/1.jpg', // Left
+                'Image/2.jpg', // Up
+                'Image/3.jpg', // Down
+                'Image/4.jpg'  // Right
+            ];
+
+            const SPEED = 1.0;
+
+            useEffect(() => {
+                if (gameState === 'playing') {
+                    scoreRef.current = 0;
+                    missRef.current = 0;
+                    setScore(0);
+                    setCurrentImage(DANCE_IMAGES[0]); // Default to 1.jpg
+                    setKeyPressCount(0);
+
+                    if (!audioRef.current) {
+                        audioRef.current = new Audio('mp3/endingbg.mp3');
+                        audioRef.current.volume = 0.5;
+                        audioRef.current.loop = true;
+                    }
+                    audioRef.current.play().catch(e => console.log('Audio playback failed', e));
+
+                    reqRef.current = requestAnimationFrame(gameLoop);
+                    const timer = setInterval(() => {
+                        setTimeLeft((prev) => {
+                            if (prev <= 1) {
+                                clearInterval(timer);
+                                endGame();
+                                return 0;
+                            }
+                            return prev - 1;
+                        });
+                    }, 1000);
+                    return () => clearInterval(timer);
+                }
+            }, [gameState]);
+
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (gameState !== 'playing') return;
+                    if (LANES.includes(e.code)) {
+                        e.preventDefault();
+                        const laneIdx = LANES.indexOf(e.code);
+                        triggerHitEffect(laneIdx);
+                        setCurrentImage(DANCE_IMAGES[laneIdx]);
+                        setKeyPressCount(c => c + 1);
+                        checkHit(laneIdx);
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [gameState]);
+
+            const triggerHitEffect = (laneIdx) => {
+                setHitEffects(prev => {
+                    const next = [...prev];
+                    next[laneIdx] = true;
+                    return next;
+                });
+                setTimeout(() => {
+                    setHitEffects(prev => {
+                        const next = [...prev];
+                        next[laneIdx] = false;
+                        return next;
+                    });
+                }, 100);
+            };
+
+            const gameLoop = () => {
+                const now = Date.now();
+                if (now - lastSpawnTime.current > 400) {
+                    if (Math.random() > 0.4) {
+                        const laneIdx = Math.floor(Math.random() * 4);
+
+                        notesRef.current.push({
+                            id: Date.now() + Math.random(),
+                            lane: laneIdx,
+                            x: 110, // Start outside screen right
+                            processed: false
+                        });
+                    }
+                    lastSpawnTime.current = now;
+                }
+
+                notesRef.current = notesRef.current.filter(note => {
+                    note.x -= SPEED;
+
+                    // Miss Condition
+                    if (note.x < -10 && !note.processed) {
+                        setCombo(0); setFeedback("MISS"); missRef.current++;
+                        return false;
+                    }
+                    return true;
+                });
+
+                setNotes([...notesRef.current]);
+
+                if (gameState === 'playing') reqRef.current = requestAnimationFrame(gameLoop);
+            };
+
+            const checkHit = (laneIdx) => {
+                const hitNote = notesRef.current.find(n => n.lane === laneIdx && n.x > 5 && n.x < 25 && !n.processed);
+
+                if (hitNote) {
+                    hitNote.processed = true;
+                    notesRef.current = notesRef.current.filter(n => n.id !== hitNote.id);
+
+                    scoreRef.current += 300;
+                    setScore(scoreRef.current);
+                    setCombo(p => p + 1);
+                    setFeedback("PERFECT!");
+                    setImgError(false);
+                }
+            };
+
+            const endGame = () => {
+                if (audioRef.current) {
+                    audioRef.current.pause();
+                    audioRef.current.currentTime = 0;
+                }
+                cancelAnimationFrame(reqRef.current);
+                setGameState('finished');
+            };
+
+            const retryGame = () => {
+                setGameState('ready');
+                setScore(0);
+                setCombo(0);
+                setNotes([]);
+                setFeedback("");
+                setTimeLeft(40);
+                setHitEffects([false, false, false, false]);
+                setCurrentImage(null);
+                setImgError(false);
+                setKeyPressCount(0);
+
+                notesRef.current = [];
+                scoreRef.current = 0;
+                missRef.current = 0;
+                lastSpawnTime.current = 0;
+            };
+
+            const finishGame = () => {
+                const finalScore = scoreRef.current;
+                const totalMiss = missRef.current;
+
+                let rank = 'F';
+                if (totalMiss === 0 && finalScore > 0) {
+                    rank = 'P'; // Perfect
+                } else if (finalScore >= 5000) {
+                    rank = 'S';
+                } else if (finalScore >= 2000) {
+                    rank = 'B';
+                }
+                onComplete(rank, finalScore);
+            };
+
+            return (
+                <div className="fixed inset-0 z-[9999] bg-black flex flex-col font-sans select-none">
+
+                    {/* Background Image Layer */}
+                    <div className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
+                        {currentImage ? (
+                            <img
+                                key={keyPressCount}
+                                src={currentImage}
+                                className="w-full h-full object-cover dance-image-anim opacity-80"
+                                onError={(e) => { e.target.style.display = 'none'; setImgError(true); }}
+                                alt="Dance Background"
+                            />
+                        ) : <div className="w-full h-full bg-slate-900" />}
+                    </div>
+
+                    {/* Score Board */}
+                    <div className="absolute top-6 left-0 w-full flex justify-between px-10 text-4xl font-cinzel text-white z-40 drop-shadow-[0_4px_4px_rgba(0,0,0,1)]">
+                        <div>SCORE: {score}</div>
+                        <div>TIME: {timeLeft}s</div>
+                    </div>
+
+                    {/* Feedback */}
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none">
+                        {imgError && <div className="text-8xl animate-bounce mb-8">💃</div>}
+                        <div className="text-center transform -translate-y-20">
+                            <div className={`text-9xl font-black italic tracking-tighter drop-shadow-[0_0_30px_rgba(0,0,0,0.8)] ${feedback === 'PERFECT!' ? 'text-yellow-400' : 'text-red-500'}`}>
+                                {combo > 1 ? `${combo} COMBO` : ''}
+                            </div>
+                            <div className={`text-6xl font-bold mt-2 drop-shadow-[0_2px_8px_rgba(0,0,0,1)] ${feedback === 'PERFECT!' ? 'text-cyan-300' : 'text-white'}`}>{feedback}</div>
+                        </div>
+                    </div>
+
+                    {/* NOTE TRACK */}
+                    <div className="absolute bottom-0 w-full h-64 bg-gradient-to-t from-black via-black/90 to-transparent z-30 flex items-center">
+                        <div className="w-full h-32 relative flex items-center">
+                            {/* Hit Line */}
+                            <div className="absolute left-[15%] top-1/2 -translate-y-1/2 w-24 h-24 flex justify-center items-center z-20">
+                                <div className={`w-full h-full rounded-full border-4 border-white/30 absolute transition-all duration-75 shadow-[0_0_20px_rgba(255,255,255,0.2)] ${hitEffects.some(e => e) ? 'scale-110 border-white shadow-[0_0_30px_white]' : ''}`}></div>
+                                <div className="w-1 h-full bg-white/10 absolute blur-[1px]"></div>
+                            </div>
+
+                            {/* Moving Notes */}
+                            {notes.map(note => (
+                                <div
+                                    key={note.id}
+                                    className={`absolute text-7xl font-black ${COLORS[note.lane]} transition-transform will-change-transform`}
+                                    style={{
+                                        left: `${note.x}%`,
+                                        top: '50%',
+                                        transform: 'translate(-50%, -50%)',
+                                        zIndex: 10
+                                    }}
+                                >
+                                    {SYMBOLS[note.lane]}
+                                </div>
+                            ))}
+
+                            {/* Track Guideline */}
+                            <div className="absolute top-1/2 w-full h-px bg-white/10"></div>
+                        </div>
+
+                        {/* Controls Hint */}
+                        <div className="absolute bottom-4 w-full flex justify-center gap-12 text-white/50 text-2xl font-bold">
+                            <span className={hitEffects[0] ? 'text-cyan-400 scale-125' : ''}>← Left</span>
+                            <span className={hitEffects[1] ? 'text-green-400 scale-125' : ''}>↑ Up</span>
+                            <span className={hitEffects[2] ? 'text-yellow-400 scale-125' : ''}>↓ Down</span>
+                            <span className={hitEffects[3] ? 'text-pink-400 scale-125' : ''}>→ Right</span>
+                        </div>
+                    </div>
+
+                    {/* Intro Modal */}
+                    {gameState === 'ready' && (
+                        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4 z-50 backdrop-blur-sm">
+                            <h2 className="text-6xl text-teal-400 font-bold mb-8 font-serif-kr drop-shadow-[0_0_20px_teal]">Ryukyu Dance</h2>
+                            <p className="text-slate-200 mb-12 text-2xl leading-relaxed font-myeongjo">
+                                Dance to the rhythm.<br />
+                                <span className="text-base opacity-70 mt-4 block">Press the arrow keys when the arrows touch the circle.</span>
+                            </p>
+                            <button onClick={() => setGameState('playing')} className="px-20 py-6 bg-gradient-to-r from-teal-600 to-blue-600 text-white rounded-full font-bold text-3xl animate-pulse shadow-[0_0_40px_teal] hover:scale-105 transition-transform">
+                                Start Dancing
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Result Modal */}
+                    {gameState === 'finished' && (
+                        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center text-center animate-fade-in z-50">
+                            <h2 className="text-7xl text-white font-bold mb-10 font-cinzel">STAGE CLEAR</h2>
+                            <div className="text-[10rem] font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 mb-6 drop-shadow-2xl">{score}</div>
+                            {missRef.current === 0 && score > 0 && <div className="text-6xl text-cyan-400 font-black tracking-widest animate-pulse border-y-8 border-cyan-500 py-6 mb-12 bg-cyan-950/50 w-full">ALL PERFECT!</div>}
+
+                            <div className="flex gap-10">
+                                <button onClick={retryGame} className="px-14 py-5 border-4 border-white/30 hover:bg-white/10 hover:border-white text-white rounded-full font-bold text-2xl transition-all">
+                                    Retry
+                                </button>
+                                <button onClick={finishGame} className="px-14 py-5 bg-teal-600 hover:bg-teal-500 text-white rounded-full font-bold text-2xl shadow-[0_0_40px_teal] animate-pulse transition-all transform hover:scale-105">
+                                    Confirm Result
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- BINGATA QUIZ COMPONENT ---
+        const BingataQuiz = ({ onComplete }) => {
+            const handleAnswer = (isCorrect) => {
+                onComplete(isCorrect);
+            };
+
+            return (
+                <div className="flex flex-col items-center w-full animate-fade-in max-w-2xl mx-auto">
+                    <h3 className="text-xl text-teal-300 mb-6 font-serif-kr text-center">"Which one is the true 'Bingata' of Ryukyu?"</h3>
+                    <div className="grid grid-cols-2 gap-4 w-full">
+                        <button onClick={() => handleAnswer(false)} className="p-4 bg-gray-800 rounded border border-gray-600 hover:border-gray-400 group">
+                            <img src="Image/1234.jpg" className="w-full aspect-square object-cover rounded border border-gray-600 animate-pulse" alt="Option 1" />
+                        </button>
+                        <button onClick={() => handleAnswer(true)} className="p-4 bg-red-900/30 rounded border border-red-500/50 hover:border-red-400 hover:bg-red-900/50 group">
+                            <img src="Image/realbingata.jpg" className="w-full aspect-square object-cover rounded border border-red-500/50 animate-pulse" alt="Red Bingata" />
+                        </button>
+                        <button onClick={() => handleAnswer(false)} className="p-4 bg-yellow-900/30 rounded border border-yellow-600 hover:border-yellow-400 group">
+                            <img src="Image/hanbok.jpg" className="w-full aspect-square object-cover rounded border border-yellow-600 animate-pulse" alt="Option 3" />
+                        </button>
+                        <button onClick={() => handleAnswer(false)} className="p-4 bg-blue-900/30 rounded border border-blue-600 hover:border-blue-400 group">
+                            <img src="Image/india.jpg" className="w-full aspect-square object-cover rounded border border-blue-600 animate-pulse" alt="Option 4" />
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- DEBATE GAME COMPONENT ---
+        const DebateGame = ({ onComplete }) => {
+            const [playerHp, setPlayerHp] = useState(100);
+            const [enemyHp, setEnemyHp] = useState(100);
+            const [round, setRound] = useState(0);
+            const [log, setLog] = useState("");
+            const [anim, setAnim] = useState(null);
+            const [gameState, setGameState] = useState('intro');
+            const [showObjection, setShowObjection] = useState(false);
+            const [timeLeft, setTimeLeft] = useState(10);
+
+            const ROUNDS = [
+                {
+                    round: 1,
+                    enemyType: 'AUTHORITY',
+                    enemyName: 'Matsuda (Intimidation)',
+                    enemyText: "\"No country stays silent when its citizens are murdered! Powerless peace is just a cowardly excuse!\"",
+                    choices: [
+                        { text: "[Logic] \"According to international law, diplomatic resolution comes first! Your 'protection' is just an excuse for invasion!\"", type: 'LOGIC', isCorrect: true },
+                        { text: "[Emotion] \"We are sad too! But we don't want to fight.\"", type: 'EMOTION', isCorrect: false },
+                        { text: "[Intimidation] \"Shut up! How rude!\"", type: 'AUTHORITY', isCorrect: false }
+                    ],
+                    successLog: "You: \"Ignoring international law is not the attitude of a civilized nation!\"",
+                    failLog: "Matsuda: \"Hmph, weak words! You seek the law because you have no power.\""
+                },
+                {
+                    round: 2,
+                    enemyType: 'LOGIC',
+                    enemyName: 'Matsuda (Logic)',
+                    enemyText: "\"The Qing Dynasty has already paid reparations. Receiving the money is clear evidence that Qing acknowledges Ryukyu as a vassal state of Japan.\"",
+                    choices: [
+                        { text: "[Intimidation] \"Don't lie! We will never acknowledge this!\"", type: 'AUTHORITY', isCorrect: false },
+                        { text: "[Emotion] \"You cannot buy 500 years of history with a few coins! Will you also put a price on the memories flowing in our people's veins?\"", type: 'EMOTION', isCorrect: true },
+                        { text: "[Logic] \"Those reparations were merely for ship repairs.\"", type: 'LOGIC', isCorrect: false }
+                    ],
+                    successLog: "You: \"History and memory cannot be bought with money!\"",
+                    failLog: "Matsuda: \"Cut the sentimental nonsense. The contract is the evidence.\""
+                },
+                {
+                    round: 3,
+                    enemyType: 'EMOTION',
+                    enemyName: 'Matsuda (Anger)',
+                    enemyText: "\"Your stubborn attitude is ruining Ryukyu! I am a benefactor who came to civilize you! Why can't you understand my true intentions!\"",
+                    choices: [
+                        { text: "[Logic] \"True intentions? Your claims lack evidence.\"", type: 'LOGIC', isCorrect: false },
+                        { text: "[Emotion] \"We were wrong... Please calm down.\"", type: 'EMOTION', isCorrect: false },
+                        { text: "[Intimidation] \"Silence! As a nation's archivist, I am showing courtesy to a guest, not an invader!\"", type: 'AUTHORITY', isCorrect: true }
+                    ],
+                    successLog: "You: \"This is the royal palace of Ryukyu! Show some respect!\"",
+                    failLog: "Matsuda: \"Insulting my goodwill! You are beyond saving!\""
+                }
+            ];
+
+            useEffect(() => {
+                if (gameState === 'intro') {
+                    setLog("The debate with Disposition Officer Matsuda begins.");
+                    setTimeout(() => startRound(0), 2000);
+                }
+            }, [gameState]);
+
+            useEffect(() => {
+                if (gameState === 'playing' && timeLeft > 0) {
+                    const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
+                    return () => clearTimeout(timer);
+                } else if (timeLeft === 0 && gameState === 'playing') {
+                    handleTimeout();
+                }
+            }, [timeLeft, gameState]);
+
+            const startRound = (rIdx) => {
+                if (rIdx >= ROUNDS.length) {
+                    setGameState('win');
+                    return;
+                }
+                setRound(rIdx);
+                setGameState('playing');
+                setLog(`[Round ${rIdx + 1}] ${ROUNDS[rIdx].enemyText}`);
+                setTimeLeft(10);
+            };
+
+            const handleTimeout = () => {
+                setLog("Time over! You were attacked while hesitating!");
+                setAnim('shake');
+                const dmg = 20;
+                setPlayerHp(h => Math.max(0, h - dmg));
+                if (playerHp - dmg <= 0) {
+                    setGameState('lose');
+                } else {
+                    setTimeLeft(10);
+                }
+                setTimeout(() => setAnim(null), 500);
+            };
+
+            const handleChoice = (choice) => {
+                if (gameState !== 'playing') return;
+                const currentRound = ROUNDS[round];
+
+                if (choice.isCorrect) {
+                    // Success
+                    setLog(currentRound.successLog);
+                    setShowObjection(true);
+                    setAnim('hit-enemy');
+
+                    setTimeout(() => {
+                        setShowObjection(false);
+                        const dmg = 34;
+                        setEnemyHp(h => Math.max(0, h - dmg));
+
+                        // Check Win
+                        if (round < 2) {
+                            setTimeout(() => startRound(round + 1), 2000);
+                        } else {
+                            setTimeout(() => {
+                                setGameState('win');
+                                setLog("Matsuda has been refuted and is at a loss for words! (Victory)");
+                            }, 1500);
+                        }
+                    }, 1500);
+
+                } else {
+                    // Fail
+                    setLog(currentRound.failLog);
+                    setAnim('shake');
+
+                    const dmg = 34;
+                    setPlayerHp(h => Math.max(0, h - dmg));
+
+                    if (playerHp - dmg <= 0) {
+                        setGameState('lose');
+                        setLog("You were defeated in logic and driven out...");
+                    }
+                }
+
+                setTimeout(() => setAnim(null), 500);
+            };
+
+            return (
+                <div className="fixed inset-0 z-[9999] bg-black/90 flex flex-col items-center justify-center p-4" style={{ backgroundImage: "url('Image/debate.jpg')", backgroundSize: 'cover', backgroundPosition: 'center' }}>
+                    <div className="absolute inset-0 bg-black/70"></div>
+                    {/* Objection Overlay */}
+                    {showObjection && (
+                        <div className="absolute inset-0 z-[10000] flex items-center justify-center animate-ping-slow pointer-events-none">
+                            <div className="text-8xl md:text-9xl font-black text-red-600 bg-white px-8 py-4 border-4 border-black rotate-[-10deg] shadow-[10px_10px_0_0_rgba(0,0,0,1)]">
+                                OBJECTION!
+                            </div>
+                        </div>
+                    )}
+
+                    <div className={`w-full max-w-4xl bg-gray-900 border-2 border-slate-600 rounded-xl p-6 relative overflow-hidden transition-transform duration-100 ${anim === 'shake' ? 'translate-x-2 translate-y-2' : ''}`}>
+
+                        {/* Battle Header */}
+                        <div className="flex justify-between items-center mb-8 relative">
+                            <div className={`flex flex-col items-center ${anim === 'hit-enemy' ? 'animate-shake text-red-500' : 'text-gray-300'}`}>
+                                <img src="Image/matsuda.jpg" alt="Matsuda" className="w-16 h-16 rounded-full border-2 border-red-500 mb-2 object-cover shadow-lg" />
+                                <StatBar label="Matsuda" value={enemyHp} max={100} color="bg-red-600" />
+                            </div>
+
+                            {/* VS and Timer */}
+                            <div className="flex flex-col items-center z-10">
+                                <div className="text-2xl font-bold text-slate-500 font-cinzel mb-2">VS</div>
+                                {gameState === 'playing' && (
+                                    <div className={`text-3xl font-bold font-mono ${timeLeft <= 3 ? 'text-red-500 animate-pulse' : 'text-yellow-400'}`}>
+                                        {timeLeft}s
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className={`flex flex-col items-center ${anim === 'shake' ? 'text-red-500' : 'text-cyan-300'}`}>
+                                <img src="Image/me.jpg" alt="Player" className="w-16 h-16 rounded-full border-2 border-cyan-500 mb-2 object-cover shadow-lg" />
+                                <StatBar label="Me" value={playerHp} max={100} color="bg-cyan-600" />
+                            </div>
+                        </div>
+
+                        {/* Dialogue Box */}
+                        <div className="bg-black/80 border border-slate-500 p-6 rounded-lg min-h-[120px] mb-6 flex items-center justify-center text-center shadow-inner">
+                            <p className={`text-xl md:text-2xl font-myeongjo leading-relaxed ${gameState === 'win' ? 'text-yellow-400' : (gameState === 'lose' ? 'text-red-500' : 'text-white')}`}>
+                                {log}
+                            </p>
+                        </div>
+
+                        {/* Choices */}
+                        {gameState === 'playing' ? (
+                            <div className="flex flex-col gap-3">
+                                {ROUNDS[round].choices.map((c, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => handleChoice(c)}
+                                        className="w-full text-left p-4 bg-slate-800 border border-slate-600 rounded hover:bg-slate-700 hover:border-cyan-400 hover:text-cyan-100 transition-all font-bold text-lg group relative overflow-hidden"
+                                    >
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-slate-600 group-hover:bg-cyan-400 transition-colors"></div>
+                                        <span className="ml-4">{c.text}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex justify-center">
+                                {gameState === 'intro' ? (
+                                    <div className="text-slate-500 animate-pulse">Preparing...</div>
+                                ) : (
+                                    <button onClick={() => onComplete(gameState === 'win')} className={`px-10 py-3 rounded font-bold text-xl animate-bounce shadow-lg ${gameState === 'win' ? 'bg-cyan-600 text-white' : 'bg-red-800 text-red-200'}`}>
+                                        {gameState === 'win' ? 'Confirm Victory (PRESS)' : 'Admit Defeat (PRESS)'}
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- STEALTH GAME CONSTANTS ---
+        const SG_CONSTANTS = {
+            GAME_W: 800,
+            GAME_H: 600,
+            PLAYER_SIZE: 40,
+            SPEED: 4,
+            JUMP_FORCE: 10,
+            GRAVITY: 0.5,
+            LADDER_SPEED: 2.5
+        };
+
+        const SG_LEVEL = {
+            PLATFORMS: [
+                { id: 1, x: 0, y: 0, w: 800, h: 40 },
+                { id: 2, x: 0, y: 200, w: 640, h: 30 },
+                { id: 3, x: 160, y: 400, w: 640, h: 30 },
+                { id: 4, x: 320, y: 550, w: 160, h: 30 }
+            ],
+            LADDERS: [
+                { id: 'L1', x: 600, y: 40, h: 160 },
+                { id: 'L2', x: 200, y: 230, h: 170 },
+                { id: 'L3', x: 380, y: 430, h: 120 }
+            ],
+            GOAL: { x: 380, y: 580, w: 40, h: 40 },
+            INITIAL_PLAYER: {
+                x: 50, y: 40, w: 30, h: 40,
+                vx: 0, vy: 0,
+                onLadder: false, climbing: false, grounded: true,
+                facingRight: true, animFrame: 0
+            },
+            INITIAL_ENEMIES: [
+                { id: 'E1', x: 400, y: 40, w: 50, h: 50, flow: 1, minX: 100, maxX: 700, speed: 2, platformY: 0 },
+                { id: 'E2', x: 100, y: 230, w: 50, h: 50, flow: 1, minX: 50, maxX: 550, speed: 2.5, platformY: 200 },
+                { id: 'E3', x: 600, y: 430, w: 50, h: 50, flow: -1, minX: 200, maxX: 750, speed: 3, platformY: 400 }
+            ]
+        };
+
+        // --- STEALTH GAME COMPONENT ---
+        const StealthGame = ({ onComplete }) => {
+            const [gameState, setGameState] = useState('playing');
+            const [reason, setReason] = useState(null);
+
+            const playerRef = useRef({ ...SG_LEVEL.INITIAL_PLAYER });
+            const enemiesRef = useRef(JSON.parse(JSON.stringify(SG_LEVEL.INITIAL_ENEMIES)));
+
+            const inputRef = useRef({ left: false, right: false, up: false, down: false, jump: false });
+            const reqRef = useRef(null);
+
+            useEffect(() => {
+                const handleDown = (e) => {
+                    if (e.code === 'ArrowLeft') inputRef.current.left = true;
+                    if (e.code === 'ArrowRight') inputRef.current.right = true;
+                    if (e.code === 'ArrowUp') inputRef.current.up = true;
+                    if (e.code === 'ArrowDown') inputRef.current.down = true;
+                    if (e.code === 'Space') inputRef.current.jump = true;
+                };
+                const handleUp = (e) => {
+                    if (e.code === 'ArrowLeft') inputRef.current.left = false;
+                    if (e.code === 'ArrowRight') inputRef.current.right = false;
+                    if (e.code === 'ArrowUp') inputRef.current.up = false;
+                    if (e.code === 'ArrowDown') inputRef.current.down = false;
+                    if (e.code === 'Space') inputRef.current.jump = false;
+                };
+                window.addEventListener('keydown', handleDown);
+                window.addEventListener('keyup', handleUp);
+                return () => {
+                    window.removeEventListener('keydown', handleDown);
+                    window.removeEventListener('keyup', handleUp);
+                };
+            }, []);
+
+            const retryGame = () => {
+                playerRef.current = { ...SG_LEVEL.INITIAL_PLAYER };
+                enemiesRef.current = JSON.parse(JSON.stringify(SG_LEVEL.INITIAL_ENEMIES));
+                setGameState('playing');
+                setReason(null);
+            };
+
+            const rectIntersect = (r1, r2) => {
+                return !(r2.x > r1.x + r1.w || r2.x + r2.w < r1.x || r2.y > r1.y + r1.h || r2.y + r2.h < r1.y);
+            };
+
+            useEffect(() => {
+                const loop = () => {
+                    if (gameState !== 'playing') return;
+
+                    const p = playerRef.current;
+                    const input = inputRef.current;
+                    const { SPEED, JUMP_FORCE, GRAVITY, LADDER_SPEED, GAME_W } = SG_CONSTANTS;
+
+                    // --- PLAYER PHYSICS ---
+                    if (input.left) { p.vx = -SPEED; p.facingRight = false; }
+                    else if (input.right) { p.vx = SPEED; p.facingRight = true; }
+                    else { p.vx = 0; }
+
+                    let touchingLadder = null;
+                    for (let l of SG_LEVEL.LADDERS) {
+                        if (p.x + p.w / 2 >= l.x - 10 && p.x + p.w / 2 <= l.x + 10 + 40 &&
+                            p.y >= l.y - 10 && p.y <= l.y + l.h + 10) {
+                            touchingLadder = l;
+                            break;
+                        }
+                    }
+
+                    if (touchingLadder && (input.up || input.down)) {
+                        p.climbing = true;
+                        p.onLadder = true;
+                        p.vx = 0;
+                    } else if (!touchingLadder) {
+                        p.climbing = false;
+                    }
+
+                    if (p.climbing) {
+                        p.vy = 0;
+                        if (input.up) { p.vy = LADDER_SPEED; p.animFrame = (p.animFrame + 0.1) % 2; }
+                        else if (input.down) { p.vy = -LADDER_SPEED; p.animFrame = (p.animFrame + 0.1) % 2; }
+                        p.y += p.vy;
+                    } else {
+                        p.vy -= GRAVITY;
+                        p.y += p.vy;
+                        p.x += p.vx;
+                        if (input.jump && p.grounded) {
+                            p.vy = JUMP_FORCE;
+                            p.grounded = false;
+                        }
+                    }
+
+                    // Bounds
+                    if (p.x < 0) p.x = 0;
+                    if (p.x > GAME_W - p.w) p.x = GAME_W - p.w;
+
+                    // Platform Collision
+                    p.grounded = false;
+                    if (!p.climbing) {
+                        for (let plat of SG_LEVEL.PLATFORMS) {
+                            if (p.vy <= 0) {
+                                if (p.x + p.w > plat.x && p.x < plat.x + plat.w &&
+                                    p.y >= plat.y && p.y <= plat.y + 40) {
+                                    if (p.y <= plat.y + plat.h + 10) {
+                                        p.y = plat.y + plat.h;
+                                        p.vy = 0;
+                                        p.grounded = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (p.y < -50) { p.y = 40; p.vy = 0; }
+
+                    // --- ENEMY AI ---
+                    enemiesRef.current.forEach(e => {
+                        e.x += e.speed * e.flow;
+                        if (e.x > e.maxX) { e.x = e.maxX; e.flow = -1; }
+                        if (e.x < e.minX) { e.x = e.minX; e.flow = 1; }
+
+                        const visionRange = 80;
+                        const xOffset = e.w * 0.7;
+                        const visionRect = {
+                            x: e.flow > 0 ? e.x + xOffset : e.x + (e.w - xOffset) - visionRange,
+                            y: e.y + (e.h * 0.1),
+                            w: visionRange,
+                            h: 40
+                        };
+
+                        const enemyRect = { x: e.x + 10, y: e.y, w: e.w - 20, h: e.h };
+                        const playerRect = { x: p.x + 8, y: p.y, w: p.w - 16, h: p.h };
+
+                        if (rectIntersect(playerRect, enemyRect)) {
+                            setReason("Caught by the police officer!");
+                            setGameState('lose');
+                        }
+                        else if (rectIntersect(playerRect, visionRect)) {
+                            setReason("Spotted by the flashlight!");
+                            setGameState('lose');
+                        }
+                    });
+
+                    // Goal
+                    if (rectIntersect({ x: p.x, y: p.y, w: p.w, h: p.h }, SG_LEVEL.GOAL)) {
+                        setGameState('win');
+                        onComplete(true);
+                        return;
+                    }
+
+                    // --- DOM RENDER ---
+                    const playerEl = document.getElementById('sg-player');
+                    if (playerEl) {
+                        playerEl.style.transform = `translate(${p.x}px, ${SG_CONSTANTS.GAME_H - p.y - p.h}px)`;
+                        playerEl.querySelector('.sprite').style.transform = `scaleX(${p.facingRight ? -1 : 1})`;
+
+                        const playerImg = playerEl.querySelector('img');
+                        if (playerImg) {
+                            if (p.climbing) {
+                                playerImg.src = Math.floor(p.animFrame) === 0 ? "Image/silence1.png" : "Image/silence2.png";
+                            } else {
+                                playerImg.src = "Image/silence.png";
+                            }
+                        }
+                    }
+                    enemiesRef.current.forEach(e => {
+                        const el = document.getElementById(`sg-enemy-${e.id}`);
+                        if (el) {
+                            el.style.transform = `translate(${e.x}px, ${SG_CONSTANTS.GAME_H - e.y - e.h}px)`;
+                            const content = el.querySelector('.enemy-content');
+                            if (content) content.style.transform = `scaleX(${e.flow})`;
+                        }
+                    });
+
+                    reqRef.current = requestAnimationFrame(loop);
+                };
+                reqRef.current = requestAnimationFrame(loop);
+                return () => cancelAnimationFrame(reqRef.current);
+            }, [gameState]);
+
+            return (
+                <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center backdrop-blur-md">
+                    <div className="relative overflow-hidden bg-slate-900 border-4 border-slate-700 shadow-2xl"
+                        style={{ width: SG_CONSTANTS.GAME_W, height: SG_CONSTANTS.GAME_H, backgroundImage: "url('Image/library.jpg')", backgroundSize: 'cover', backgroundPosition: 'center' }}>
+
+                        {/* DECO */}
+                        <div className="absolute inset-0 opacity-10"
+                            style={{ backgroundImage: "radial-gradient(#fff 1px, transparent 1px)", backgroundSize: "32px 32px" }}></div>
+
+                        <div className="absolute top-4 left-4 text-white font-mono z-50 pointer-events-none">
+                            <h2 className="text-xl font-bold text-amber-500">🤫 STEALTH MISSION</h2>
+                            <p className="text-sm text-slate-400">TARGET: 'REKIDAI HOAN' DOCUMENT</p>
+                        </div>
+
+                        {/* PLATFORMS */}
+                        {SG_LEVEL.PLATFORMS.map(p => (
+                            <div key={p.id} className="absolute bg-amber-950 border-t-2 border-amber-500/50"
+                                style={{ left: p.x, bottom: p.y, width: p.w, height: p.h }}>
+                                <div className="w-full h-full opacity-20 flex gap-1 px-1 pt-1">
+                                    {Array.from({ length: Math.ceil(p.w / 20) }).map((_, i) => (
+                                        <div key={i} className="flex-1 bg-black/50 rounded-t-sm"></div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+
+                        {/* LADDERS */}
+                        {SG_LEVEL.LADDERS.map(l => (
+                            <div key={l.id} className="absolute w-[40px] flex flex-col border-x-2 border-amber-800/50 bg-black/20"
+                                style={{ left: l.x, bottom: l.y, height: l.h }}>
+                                {Array.from({ length: Math.floor(l.h / 20) }).map((_, i) => (
+                                    <div key={i} className="w-full h-1 bg-amber-600/40 mt-4 shadow-sm"></div>
+                                ))}
+                            </div>
+                        ))}
+
+                        {/* GOAL */}
+                        <div className="absolute animate-bounce"
+                            style={{ left: SG_LEVEL.GOAL.x, bottom: SG_LEVEL.GOAL.y, width: SG_LEVEL.GOAL.w, height: SG_LEVEL.GOAL.h }}>
+                            <div className="text-4xl drop-shadow-[0_0_15px_yellow]">📜</div>
+                        </div>
+
+                        {/* PLAYER */}
+                        <div id="sg-player" className="absolute will-change-transform top-0 left-0"
+                            style={{ width: SG_CONSTANTS.PLAYER_SIZE, height: SG_CONSTANTS.PLAYER_SIZE }}>
+                            <div className="sprite w-full h-full relative transition-transform origin-center">
+                                <img src="Image/silence.png" alt="Player" className="absolute inset-0 w-full h-full object-contain scale-[2] -translate-y-[30%] filter drop-shadow-lg" />
+                            </div>
+                        </div>
+
+                        {/* ENEMIES */}
+                        {SG_LEVEL.INITIAL_ENEMIES.map(e => (
+                            <div key={e.id} id={`sg-enemy-${e.id}`}
+                                className="absolute will-change-transform top-0 left-0"
+                                style={{ width: e.w, height: e.h }}>
+
+                                <div className="enemy-content w-full h-full relative transition-transform duration-300">
+                                    <div className="absolute top-[10%] left-[70%] w-[80px] h-[40px] origin-left pointer-events-none mix-blend-screen">
+                                        <div className="w-full h-full bg-gradient-to-r from-yellow-400/60 to-transparent"
+                                            style={{ clipPath: 'polygon(0% 40%, 100% 0%, 100% 100%, 0% 60%)' }}></div>
+                                    </div>
+
+                                    <img src="Image/police.png" alt="Police" className="absolute inset-0 w-full h-full object-contain scale-[2] -translate-y-[10%] filter drop-shadow-lg" />
+                                </div>
+                            </div>
+                        ))}
+
+                        {/* GAME OVER */}
+                        {gameState === 'lose' && (
+                            <div className="absolute inset-0 bg-red-950/90 z-[100] flex flex-col items-center justify-center animate-fade-in text-white">
+                                <div className="text-7xl mb-4 animate-bounce">🚨</div>
+                                <h1 className="text-5xl font-black text-red-500 mb-2 uppercase tracking-widest drop-shadow-lg">ARRESTED</h1>
+                                <p className="text-xl mb-8 text-red-200 font-mono">{reason}</p>
+                                <button onClick={retryGame}
+                                    className="group relative px-8 py-4 bg-transparent overflow-hidden rounded-none border border-red-500 text-red-500 font-bold hover:bg-red-500 hover:text-white transition-all">
+                                    <span className="relative z-10 flex items-center gap-2">RETRY MISSION <span className="text-xs">⏎</span></span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+
+        // --- ENDING SCREEN COMPONENT ---
+        const EndingScreen = ({ data, onReturn }) => {
+            const { endingType, stats } = data;
+
+            const ENDING_DATA = {
+                'TRUE': {
+                    title: "The Jade Memory",
+                    theme: "bg-gradient-to-b from-teal-900 to-black",
+                    story: "March 27, 1879, Shuri Castle fell silent. The king was taken to Tokyo, and the name Ryukyu was erased from the map.\n\nHowever, the 'Bingata' and the 'Score' you threw over the wall did not disappear. They survived, hidden deep in a grandmother's closet and in the hums of a fisherman.\n\n100 years later... Under the blue sky of Okinawa, the sound of the Sanshin echoes again. Your name is absent from the melody, but your will breathes within it.\n\nWe lost, but we were not defeated. As long as we remember, Ryukyu is eternal."
+                },
+                'NORMAL': {
+                    title: "A Museum Piece",
+                    theme: "bg-gradient-to-b from-gray-800 to-black",
+                    story: "You were wise. You did not swim against the tide. In return, your family received the title of 'Baron' and enjoyed a safe life in a Tokyo mansion.\n\nHowever, you never spoke your native tongue again until your death. The person in the mirror was a stranger wearing the clothes of a Japanese noble.\n\nOne day, looking at an old official uniform displayed in a museum glass case, you realized: What you protected was not a nation, but a stuffed empty shell."
+                },
+                'SAD': {
+                    title: "The Exile",
+                    theme: "bg-gradient-to-b from-slate-900 to-black",
+                    story: "Under the cover of darkness, you boarded a small wooden boat. You braved the rough waves to reach Qing, but the declining empire had no power to help Ryukyu.\n\n'Please help us... We have sovereignty...'\n\nYour pleas were drowned out by the noise of a foreign street. Wandering as an exile, you closed your eyes in solitude, looking towards the eastern sea every night."
+                },
+                'BAD': {
+                    title: "Blood & Fire",
+                    theme: "bg-gradient-to-b from-red-900 to-black",
+                    story: "'You scoundrels!!! How dare you step on Ryukyu soil!!'\n\nYour reckless charge ended in vain before the bullets of the Japanese army. That night, Shuri Castle was engulfed in crimson flames, burning for three days and nights.\n\nRecords, treasures, and people all turned to ashes. Only one thing remained: the desperate scream of a person who refused to kneel until the very end."
+                }
+            };
+
+            const info = ENDING_DATA[endingType] || ENDING_DATA['BAD'];
+
+            const [text, setText] = useState("");
+            const [showScore, setShowScore] = useState(false);
+
+            useEffect(() => {
+                let index = 0;
+                const fullText = info.story;
+
+                const timer = setInterval(() => {
+                    index++;
+                    setText(fullText.substring(0, index));
+
+                    if (index >= fullText.length) {
+                        clearInterval(timer);
+                        setTimeout(() => setShowScore(true), 2000);
+                    }
+                }, 50);
+
+                return () => clearInterval(timer);
+            }, [info.story]);
+
+            return (
+                <div className={`fixed inset-0 z-[9999] ${info.theme} text-white flex flex-col items-center justify-center p-8 overflow-hidden animate-fade-in`}>
+
+                    <div className="w-full max-w-4xl flex flex-col items-center h-full pt-20">
+
+                        <div className="mb-12 text-center animate-[fadeInDown_1.5s_ease-out]">
+                            <div className="text-sm md:text-base text-white/50 font-cinzel tracking-[0.6em] mb-4 uppercase">Epilogue</div>
+                            <h1 className="text-3xl md:text-5xl font-black font-myeongjo drop-shadow-2xl leading-tight">{info.title}</h1>
+                            <div className="w-16 h-1 bg-white/30 mx-auto mt-8"></div>
+                        </div>
+
+                        <div className="flex-1 w-full max-w-2xl text-center">
+                            <p className="text-lg md:text-2xl font-serif-kr leading-loose whitespace-pre-line text-slate-200 min-h-[300px]">
+                                {text}
+                                <span className={`inline-block w-1 h-5 bg-white ml-1 align-middle ${showScore ? 'opacity-0' : 'animate-pulse'}`}></span>
+                            </p>
+                        </div>
+
+                        {showScore && (
+                            <div className="animate-[fadeInUp_1.5s_ease-out] w-full max-w-xl bg-black/40 border border-white/10 p-8 rounded-lg backdrop-blur-md mb-10">
+                                <div className="grid grid-cols-4 gap-4 text-center font-mono text-sm mb-8">
+                                    <div>
+                                        <div className="uppercase opacity-50 text-[10px]">Identity</div>
+                                        <div className="text-teal-400 text-xl">{stats.int}</div>
+                                    </div>
+                                    <div>
+                                        <div className="uppercase opacity-50 text-[10px]">War</div>
+                                        <div className="text-red-400 text-xl">{stats.war}</div>
+                                    </div>
+                                    <div>
+                                        <div className="uppercase opacity-50 text-[10px]">Diplomacy</div>
+                                        <div className="text-yellow-400 text-xl">{stats.cha}</div>
+                                    </div>
+                                    <div className="border-l border-white/20 pl-4">
+                                        <div className="uppercase opacity-50 text-[10px]">Ending</div>
+                                        <div className={`text-xl font-bold ${endingType === 'TRUE' ? 'text-teal-300' : 'text-slate-300'}`}>{endingType}</div>
+                                    </div>
+                                </div>
+
+                                <button onClick={() => onReturn('POST_CREDIT')}
+                                    className="w-full py-4 border border-white/20 bg-white/5 hover:bg-white/20 hover:text-teal-200 transition-all duration-300 rounded-sm uppercase tracking-[0.2em] text-sm font-bold flex items-center justify-center gap-2">
+                                    <span>View Post-Credit Scene</span> <ChevronRight size={14} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- POST-CREDIT SCENE COMPONENT ---
+        const PostCreditScene = ({ endingType, onComplete }) => {
+            const [isRevealed, setIsRevealed] = useState(false);
+            const [showButton, setShowButton] = useState(false);
+            const [message, setMessage] = useState("");
+
+            const audioRef = useRef(null);
+
+            useEffect(() => {
+                return () => {
+                    if (audioRef.current) {
+                        audioRef.current.pause();
+                        audioRef.current.currentTime = 0;
+                    }
+                };
+            }, []);
+
+            const SCENARIOS = {
+                'TRUE': {
+                    title: "2026, Naha Kokusai Dori",
+                    bg: "bg-[url('Image/realend.jpg')] bg-cover bg-center",
+                    icon: "🎸",
+                    iconStyle: "text-amber-400 drop-shadow-[0_0_15px_rgba(251,191,36,0.8)] animate-bounce",
+                    hint: "Click the Sanshin instrument",
+                    msg: "Your song is remembered forever.",
+                    effect: "animate-ping"
+                },
+                'NORMAL': {
+                    title: "Present Day, Museum",
+                    bg: "bg-[url('https://images.unsplash.com/photo-1518998053901-5348d3969105?q=80&w=3174&auto=format&fit=crop')] bg-cover bg-center grayscale",
+                    icon: "🕰️",
+                    iconStyle: "text-slate-300 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)] hover:scale-110 transition-transform",
+                    hint: "Check the displayed pocket watch",
+                    msg: "...It was a false peace.",
+                    effect: "border-b-4 border-transparent"
+                },
+                'SAD': {
+                    title: "1900, Qing Dynasty Archives",
+                    bg: "bg-slate-900",
+                    icon: "✉️",
+                    iconStyle: "text-amber-100 rotate-12 hover:rotate-0 transition-transform cursor-pointer",
+                    hint: "Pick up the fallen letter",
+                    msg: "No one heard your voice.",
+                    effect: "opacity-50"
+                },
+                'BAD': {
+                    title: "A Rural Village, Campfire",
+                    bg: "bg-black",
+                    icon: "🔥",
+                    iconStyle: "text-red-500 animate-pulse drop-shadow-[0_0_20px_rgba(239,68,68,0.8)]",
+                    hint: "Stare into the blazing flames",
+                    msg: "Your resistance became a legend.",
+                    effect: "scale-150 text-red-600"
+                }
+            };
+
+            const scene = SCENARIOS[endingType] || SCENARIOS['BAD'];
+
+            const handleInteract = () => {
+                if (isRevealed) return;
+                setIsRevealed(true);
+                setMessage(scene.msg);
+
+                if (endingType === 'TRUE') {
+                    audioRef.current = new Audio('mp3/endingbg.mp3');
+                    audioRef.current.volume = 0.5;
+                    audioRef.current.loop = true;
+                    audioRef.current.play().catch(e => console.log('Audio playback failed', e));
+                }
+
+                setTimeout(() => setShowButton(true), 2000);
+            };
+
+            return (
+                <div className={`fixed inset-0 z-[9999] ${scene.bg} flex flex-col items-center justify-center overflow-hidden transition-all duration-1000`}>
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
+
+                    <div className="relative z-10 flex flex-col items-center text-center p-8 w-full max-w-4xl">
+                        <div className="text-white/50 font-cinzel tracking-widest mb-8 uppercase text-sm animate-fade-in">{scene.title}</div>
+
+                        <div className="relative group cursor-pointer" onClick={handleInteract}>
+                            <div className={`text-9xl mb-8 select-none transition-all duration-500 ${isRevealed ? scene.effect : scene.iconStyle}`}>
+                                {scene.icon}
+                            </div>
+                            {!isRevealed && <div className="text-white/70 text-sm animate-pulse mt-4">{scene.hint}</div>}
+                        </div>
+
+                        {isRevealed && (
+                            <div className="animate-[fadeInUp_0.5s_ease-out] mt-8">
+                                <h2 className="text-2xl md:text-4xl font-myeongjo font-bold text-white mb-4 leading-relaxed whitespace-pre-line drop-shadow-xl">{message}</h2>
+                            </div>
+                        )}
+
+                        {showButton && (
+                            <div className="mt-12 animate-fade-in">
+                                <button onClick={onComplete} className="px-8 py-3 border border-white/30 text-white hover:bg-white hover:text-black transition-all rounded uppercase tracking-widest text-sm">
+                                    Return to Title
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- STAT BAR ---
+        const StatBar = ({ label, value, max = 100, color = "bg-blue-600", icon: Icon }) => (
+            <div className="flex items-center gap-2 mb-1">
+                <div className="w-16 text-[10px] md:text-xs font-bold text-gray-300 flex items-center gap-1">
+                    {Icon && <Icon size={10} />}
+                    {label}
+                </div>
+                <div className="flex-1 h-2 md:h-3 bg-gray-700 rounded-full overflow-hidden border border-gray-600">
+                    <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${Math.min((value / max) * 100, 100)}%` }}></div>
+                </div>
+                <div className="w-8 text-right text-[10px] md:text-xs font-mono text-gray-400">{value}</div>
+            </div>
+        );
+
+        // --- GAME DATA ---
+        const CHAPTERS = {
+            1: { id: 1, year: 1872, location: "Naha", title: "Chapter 1: The Dual Yoke", bgImage: 'Image/ch1home.jpg' },
+            2: { id: 2, year: 1874, location: "Sea", title: "Chapter 2: The Eve of the Storm", bgImage: 'Image/ch2info.jpg' },
+            3: { id: 3, year: 1876, location: "Street", title: "Chapter 3: The Forbidden Song", bgImage: 'Image/ch3home.jpg' },
+            4: { id: 4, year: 1878, location: "Library", title: "Chapter 4: The Shadow Kingdom", bgImage: 'Image/ch4book.jpg' },
+            5: { id: 5, year: 1879, location: "Shuri Castle", title: "Final Chapter: Sunset of Shuri", bgImage: 'Image/gathering.jpg' }
+        };
+
+        const SCENES = {
+            'START': { id: 'START', type: 'NARRATION', text: "Autumn 1872.\nJapanese black steamships enter Naha port, reeking of iron.\nDisposition Officer Matsuda declares that Ryukyu will be demoted to a 'Domain'.", effect: { action: 'START_GAME' }, next: 'CH1_OPENING_END' },
+            'CH1_OPENING_END': { id: 'CH1_OPENING_END', type: 'NARRATION', text: "In this era of turbulence, your choices will determine the fate of Ryukyu.", next: null },
+
+            // Ch1 Main: Royal Audience
+            'CH1_ROYAL': { id: 'CH1_ROYAL', type: 'DIALOG', npc: 'King Sho Tai', text: "Japan is demanding that we cut ties with the Qing Dynasty.\nMajikina, what should I do?", image: 'Image/king.jpg', next: 'CH1_ROYAL_CHOICE' },
+            'CH1_ROYAL_CHOICE': {
+                id: 'CH1_ROYAL_CHOICE', type: 'CHOICE', text: "Advise the King.", image: 'Image/king.jpg',
+                choices: [
+                    { text: "[Identity] \"We are an independent nation. Treat both with courtesy, but explicitly state our sovereignty.\"", type: 'INT', diff: 0, success: 'CH1_ROYAL_ID', fail: 'CH1_ROYAL_ID' },
+                    { text: "[Reality] \"Survival makes a King. Accept Japan's modernization.\"", type: 'WAR', diff: 0, success: 'CH1_ROYAL_REAL', fail: 'CH1_ROYAL_REAL' },
+                    { text: "[Diplomacy] \"We must send a secret envoy to Qing to keep them in check.\"", type: 'CHA', diff: 0, success: 'CH1_ROYAL_DIPLO', fail: 'CH1_ROYAL_DIPLO' }
+                ]
+            },
+            'CH1_ROYAL_ID': { id: 'CH1_ROYAL_ID', type: 'DIALOG', npc: 'King Sho Tai', text: "\"Indeed. We are Ryukyu, the nation of courtesy.\"\nA resolute determination appears in the King's eyes.", image: 'Image/kingid.jpg', effect: { action: 'GAIN_STAT', int: 20, war: -10, completeMission: 'ch1_royal' }, next: null },
+            'CH1_ROYAL_REAL': { id: 'CH1_ROYAL_REAL', type: 'DIALOG', npc: 'King Sho Tai', text: "\"It is painful... but we must endure the humiliation for the sake of the people.\"", image: 'Image/kingsad.jpg', effect: { action: 'GAIN_STAT', war: 20, funds: 20, completeMission: 'ch1_royal' }, next: null },
+            'CH1_ROYAL_DIPLO': { id: 'CH1_ROYAL_DIPLO', type: 'DIALOG', npc: 'King Sho Tai', text: "\"Prepare quietly. We will inform our brother nation.\"", image: 'Image/kingdip.jpg', effect: { action: 'GAIN_STAT', cha: 20, war: -10, completeMission: 'ch1_royal' }, next: null },
+
+            // Ch1 Sub 1: Sugar War
+            'CH1_MARKET': { id: 'CH1_MARKET', type: 'NARRATION', text: "Naha market is in chaos.\nJapanese merchants are trying to extort black sugar at dirt-cheap prices.", image: 'Image/sugar1.jpg', next: 'CH1_MARKET_CHOICE' },
+            'CH1_MARKET_CHOICE': {
+                id: 'CH1_MARKET_CHOICE', type: 'CHOICE', text: "How will you respond?", image: 'Image/sugar1.jpg',
+                choices: [
+                    { text: "[Negotiation] Use international law to pressure them logically.", type: 'INT', diff: 40, success: 'CH1_MARKET_NEGO', fail: 'CH1_MARKET_FAIL' },
+                    { text: "[Unity] Lead a merchant alliance strike.", type: 'INT', diff: 0, success: 'CH1_MARKET_STRIKE', fail: 'CH1_MARKET_STRIKE' },
+                    { text: "[Backroom Deal] Bribe officials to smuggle it secretly.", type: 'MONEY', cost: 10, success: 'CH1_MARKET_SMUGGLE', fail: 'CH1_MARKET_SMUGGLE' }
+                ]
+            },
+            'CH1_MARKET_NEGO': { id: 'CH1_MARKET_NEGO', type: 'NARRATION', text: "Due to your fluent logic, the Japanese merchants backed down and paid a fair price.", image: 'Image/sugardeal.jpg', effect: { action: 'GAIN_STAT', int: 10, funds: 30, completeMission: 'ch1_market' }, next: null },
+            'CH1_MARKET_STRIKE': { id: 'CH1_MARKET_STRIKE', type: 'NARRATION', text: "When all the shops closed, the Japanese merchants gave up.\nWe protected our pride!", image: 'Image/sugarst.jpg', effect: { action: 'GAIN_STAT', int: 30, completeMission: 'ch1_market' }, next: null },
+            'CH1_MARKET_SMUGGLE': { id: 'CH1_MARKET_SMUGGLE', type: 'NARRATION', text: "You slipped them a bribe and sold the sugar secretly at night.\nThe profit was big, but you feel guilty.", image: 'Image/sugarsm.jpg', effect: { action: 'GAIN_STAT', funds: 50, morale: -20, completeMission: 'ch1_market' }, next: null },
+            'CH1_MARKET_FAIL': { id: 'CH1_MARKET_FAIL', type: 'NARRATION', text: "Words didn't work. The sugar was taken away at a dirt-cheap price...", image: 'Image/sugarfail.jpg', effect: { action: 'FAIL_EVENT', funds: 10, completeMission: 'ch1_market' }, next: null },
+
+            // Ch1 Sub 2: Tavern Rumors
+            'CH1_TAVERN': { id: 'CH1_TAVERN', type: 'NARRATION', text: "The tavern 'End of the Sea' is crowded with sailors.\nRumors are heard about the murder of Taiwanese castaways and Japan's ambition to invade Taiwan.", image: 'Image/soju.jpg', next: 'CH1_TAVERN_CHOICE' },
+            'CH1_TAVERN_CHOICE': {
+                id: 'CH1_TAVERN_CHOICE', type: 'CHOICE', text: "Will you gather information?", image: 'Image/soju.jpg',
+                choices: [
+                    { text: "[Listen] Buy drinks and listen quietly. (Funds -5)", type: 'MONEY', cost: 5, success: 'CH1_TAVERN_LISTEN', fail: 'CH1_TAVERN_FAIL' }
+                ]
+            },
+            'CH1_TAVERN_LISTEN': { id: 'CH1_TAVERN_LISTEN', type: 'NARRATION', text: "You obtained crucial information.\nJapan is creating a pretext to attack Taiwan under the guise of protecting Ryukyuan citizens.", image: 'Image/sojuinfo.jpg', effect: { action: 'GAIN_STAT', int: 10, cha: 10, completeMission: 'ch1_tavern' }, next: null },
+            'CH1_TAVERN_FAIL': { id: 'CH1_TAVERN_FAIL', type: 'NARRATION', text: "You were kicked out because you had no money.", image: 'Image/sojufail.jpg', effect: { action: 'FAIL_EVENT', completeMission: 'ch1_tavern' }, next: null },
+
+
+            // Ch1 Climax: Thanksgiving Letter
+            'CH1_CLIMAX': { id: 'CH1_CLIMAX', type: 'NARRATION', text: "1874, after Japan's dispatch of troops to Taiwan.\nNakamura, a Japanese official, visits and yells:\n\"We shed blood for the Ryukyuans, so write a letter of gratitude!\"", image: 'Image/japan.jpg', next: 'CH1_CLIMAX_CHOICE' },
+            'CH1_CLIMAX_CHOICE': {
+                id: 'CH1_CLIMAX_CHOICE', type: 'CHOICE', text: "This letter of gratitude will become a document acknowledging Ryukyu as a vassal state of Japan.", image: 'Image/japan.jpg',
+                choices: [
+                    { text: "[Refuse] Do not stamp the seal. (War crisis)", type: 'INT', diff: 0, success: 'CH1_CLIMAX_REFUSE', fail: 'CH1_CLIMAX_REFUSE' },
+                    { text: "[Accept] Stamp the seal. (Loss of Sovereignty)", type: 'WAR', diff: 0, success: 'CH1_CLIMAX_ACCEPT', fail: 'CH1_CLIMAX_ACCEPT' },
+                    { text: "[Delay] \"Clearing up relations with Qing comes first.\"", type: 'CHA', diff: 0, success: 'CH1_CLIMAX_DELAY', fail: 'CH1_CLIMAX_DELAY' }
+                ]
+            },
+            'CH1_CLIMAX_REFUSE': { id: 'CH1_CLIMAX_REFUSE', type: 'NARRATION', text: "The official retreated at your spirit, but Japan's pressure will intensify.\n(🎁 Reward: Old Sanshin Score - Symbol of Identity)", image: 'Image/japanrefuse.jpg', effect: { action: 'GAIN_STAT', unlockChapter: true, int: 30, items: ['Old Sanshin Score'] }, next: null },
+            'CH1_CLIMAX_ACCEPT': { id: 'CH1_CLIMAX_ACCEPT', type: 'NARRATION', text: "You stamped the humiliating letter of gratitude.\nYou received compensation from the Japanese government.\n(🎁 Reward: Japanese Pocket Watch - Symbol of Modernization)", image: 'Image/japanhappy.jpg', effect: { action: 'GAIN_STAT', unlockChapter: true, war: 30, items: ['Japanese Pocket Watch', 'Humiliating Treaty'] }, next: null },
+            'CH1_CLIMAX_DELAY': { id: 'CH1_CLIMAX_DELAY', type: 'NARRATION', text: "You avoided the crisis with deft diplomacy.\nWords of encouragement arrived from the Qing Dynasty.\n(🎁 Reward: Qing Jade Pendant - Symbol of Diplomacy)", image: 'Image/japandelay.jpg', effect: { action: 'GAIN_STAT', unlockChapter: true, cha: 30, items: ['Qing Jade Pendant'] }, next: null },
+
+            // Ch2 : 1874 Storm Before Calm
+            'CH2_START': { id: 'CH2_START', type: 'NARRATION', text: "1874.\nA Ryukyuan fishing boat swept by a massive typhoon ran aground in Taiwan.\nHowever, instead of a rescue, a tragedy occurred where 54 people were murdered.\nJapan uses this as a pretext of 'Protecting Ryukyuans' to raise an army.", image: 'Image/ch2info.jpg', next: 'CH2_RESCUE' },
+
+            'CH2_RESCUE': {
+                id: 'CH2_RESCUE', type: 'CHOICE', text: "The Japanese army is trying to take the survivors under the pretext of 'protection'.", image: 'Image/survive.jpg',
+                choices: [
+                    { text: "[Protect] \"Hide them in the royal temple. We cannot lose our sovereignty.\"", type: 'INT', diff: 0, success: 'CH2_RESCUE_PROTECT', fail: 'CH2_RESCUE_PROTECT' },
+                    { text: "[Handover] \"Let's hand them over to the Japanese army and receive the reward.\"", type: 'WAR', diff: 0, success: 'CH2_RESCUE_HANDOVER', fail: 'CH2_RESCUE_HANDOVER' },
+                    { text: "[Smuggle] \"Send them to the Qing consulate to inform them.\"", type: 'CHA', diff: 0, success: 'CH2_RESCUE_SMUGGLE', fail: 'CH2_RESCUE_SMUGGLE' }
+                ]
+            },
+            'CH2_RESCUE_PROTECT': { id: 'CH2_RESCUE_PROTECT', type: 'NARRATION', text: "You hid the survivors safely. They hand you a document recording the truth.\n(🎒 Obtained [Record of Truth])", image: 'Image/rescueproject.jpg', effect: { action: 'GAIN_STAT', int: 25, items: ['Record of Truth'], completeMission: 'ch2_rescue' }, next: null },
+            'CH2_RESCUE_HANDOVER': { id: 'CH2_RESCUE_HANDOVER', type: 'NARRATION', text: "You handed them over to the Japanese army. A hefty reward came in, but your heart is heavy.", image: 'Image/rescuehandover.jpg', effect: { action: 'GAIN_STAT', war: 20, funds: 30, completeMission: 'ch2_rescue' }, next: null },
+            'CH2_RESCUE_SMUGGLE': { id: 'CH2_RESCUE_SMUGGLE', type: 'NARRATION', text: "You sent them to the Qing consulate. The great nation will learn of this fact.", image: 'Image/rescuesumggle.jpg', effect: { action: 'GAIN_STAT', cha: 25, completeMission: 'ch2_rescue' }, next: null },
+
+            'CH2_DEBATE': { id: 'CH2_DEBATE', type: 'NARRATION', npc: 'Disposition Officer Matsuda', text: "\"No country stays silent when its citizens are murdered!\nOur Japanese army is going to retaliate on behalf of Ryukyu, so hand over military supplies!\"\n(The debate with Matsuda begins!)", image: 'Image/debate.jpg', effect: { action: 'START_DEBATE' }, next: null },
+
+            'CH2_DEBATE_WIN': { id: 'CH2_DEBATE_WIN', type: 'NARRATION', text: "Matsuda was left speechless by your perfect logic.\nYou gained recognition of international legal status.\n(🎒 Obtained [Dual Nationality Certificate])", image: 'Image/debatewin.jpg', effect: { action: 'GAIN_STAT', int: 25, war: -5, items: ['Dual Nationality Certificate'], completeMission: 'ch2_debate' }, next: null },
+            'CH2_DEBATE_LOSE': { id: 'CH2_DEBATE_LOSE', type: 'NARRATION', text: "You were ridiculed for lacking logic. The warehouse was forcibly looted.", image: 'Image/debatelose.jpg', effect: { action: 'FAIL_EVENT', funds: -20, morale: -10, completeMission: 'ch2_debate' }, next: null },
+
+            // Ch2 Sub 2: Info Gathering
+            'CH2_INFO': { id: 'CH2_INFO', type: 'NARRATION', text: "The trade ships in the port are busy. We must grasp the international situation.", image: 'Image/ch2info.jpg', next: 'CH2_INFO_CHOICE' },
+            'CH2_INFO_CHOICE': {
+                id: 'CH2_INFO_CHOICE', type: 'CHOICE', text: "Who will you get information from?", image: 'Image/ch2info.jpg',
+                choices: [
+                    { text: "[Japanese Merchant] \"How is the war situation?\"", type: 'WAR', diff: 0, success: 'CH2_INFO_JP', fail: 'CH2_INFO_JP' },
+                    { text: "[Qing Merchant] \"Any news from Beijing?\"", type: 'CHA', diff: 0, success: 'CH2_INFO_CN', fail: 'CH2_INFO_CN' }
+                ]
+            },
+            'CH2_INFO_JP': { id: 'CH2_INFO_JP', type: 'NARRATION', text: "\"Our Japanese army turned the Taiwanese villages into a wasteland! What incredible momentum!\"\nJapan's ambition for invasion has been confirmed.", image: 'Image/infojp.jpg', effect: { action: 'GAIN_STAT', int: 10, completeMission: 'ch2_info' }, next: null },
+            'CH2_INFO_CN': { id: 'CH2_INFO_CN', type: 'NARRATION', text: "\"His Imperial Majesty... agreed to pay reparations to Japan.\"\nIt means they tacitly acknowledged Ryukyu as Japanese territory. (Betrayal by Qing)", image: 'Image/infocn.jpg', effect: { action: 'GAIN_STAT', int: 10, morale: -10, completeMission: 'ch2_info' }, next: null },
+
+            // Ch2 Climax
+            'CH2_CLIMAX': { id: 'CH2_CLIMAX', type: 'NARRATION', text: "Japan demands the severing of diplomatic relations with Qing,\nand forces the destruction of the investiture royal seal.", image: 'Image/ch2climax.jpg', next: 'CH2_CLIMAX_CHOICE' },
+            'CH2_CLIMAX_CHOICE': {
+                id: 'CH2_CLIMAX_CHOICE', type: 'CHOICE', text: "What will you do with the royal seal, the symbol of the nation?", image: 'Image/ch2climax.jpg',
+                choices: [
+                    { text: "[Compliance] Break the seal. (Japan Relations skyrocket)", type: 'WAR', diff: 0, success: 'CH2_CLAX_BREAK', fail: 'CH2_CLAX_BREAK' },
+                    { text: "[Preservation] Hide the seal secretly. (Risk↑)", type: 'INT', diff: 0, success: 'CH2_CLAX_HIDE', fail: 'CH2_CLAX_HIDE' },
+                    { text: "[Exile] Escape with the seal. (Risk of failure)", type: 'CHA', diff: 60, success: 'CH2_CLAX_ESCAPE', fail: 'CH2_CLAX_FAIL' }
+                ]
+            },
+            'CH2_CLAX_BREAK': { id: 'CH2_CLAX_BREAK', type: 'NARRATION', text: "The seal was shattered. Nakamura is satisfied and bestows a Japanese official uniform.\n(🎒 Obtained [Japanese Official Uniform])", image: 'Image/ch2break.jpg', effect: { action: 'GAIN_STAT', war: 50, int: -30, items: ['Japanese Official Uniform'] }, next: 'CH2_END' },
+            'CH2_CLAX_HIDE': { id: 'CH2_CLAX_HIDE', type: 'NARRATION', text: "You handed over a fake seal and buried the real one deep in the ground.\nOne day it will see the light again.\n(🎒 Obtained [Hidden Royal Seal])", image: 'Image/ch2hide.jpg', effect: { action: 'GAIN_STAT', int: 40, items: ['Hidden Royal Seal'] }, next: 'CH2_END' },
+            'CH2_CLAX_ESCAPE': { id: 'CH2_CLAX_ESCAPE', type: 'NARRATION', text: "Miraculously escaped successfully! You are promised support from the Qing Dynasty.", image: 'Image/ch2escape.jpg', effect: { action: 'GAIN_STAT', cha: 50, items: ['Hidden Royal Seal'] }, next: 'CH2_END' },
+            'CH2_CLAX_FAIL': { id: 'CH2_CLAX_FAIL', type: 'NARRATION', text: "Discovered during escape! The seal was taken, and surveillance intensifies.", image: 'Image/ch2fail.jpg', effect: { action: 'FAIL_EVENT', war: -20, morale: -30, items: ['Broken Royal Seal Piece'] }, next: 'CH2_END' },
+
+            'CH2_END': { id: 'CH2_END', type: 'NARRATION', text: "The storm has passed, but a greater darkness approaches.\nThe year 1876 dawns, the year of the forced Short Hair Edict.\n\n[✅ Next chapter is unlocked]", image: 'Image/ch2end.jpg', effect: { action: 'UNLOCK_CHAPTER' }, next: null },
+
+
+            // Ch3: The Forbidden Song (1876)
+            'CH3_START': { id: 'CH3_START', type: 'NARRATION', text: "1876. A nation is built on land, but a people is built on memory.\nThey began erasing our 'memories', not just our land.\nThe sound of Sanshin on the streets ceased, and only black and white silence remains.", image: 'Image/ch3home.jpg', next: 'HAIR_1' },
+
+            'HAIR_1': { id: 'HAIR_1', type: 'DIALOG', npc: 'Japanese Police Officer', text: "It's the Short Hair Edict! Cut off your barbaric topknots and become civilized people!", image: 'Image/ch3hair.jpg', next: 'HAIR_CHOICE' },
+            'HAIR_CHOICE': {
+                id: 'HAIR_CHOICE', type: 'CHOICE', text: "The crowd watches you in helplessness.", image: 'Image/ch3hair.jpg',
+                choices: [
+                    { text: "[Resist] \"You may cut my hair, but you cannot cut my bloodline!\"", type: 'INT', diff: 0, success: 'HAIR_RESIST', fail: 'HAIR_RESIST' },
+                    { text: "[Comply] (Cut quietly) ...It is the flow of the times.", type: 'WAR', diff: 0, success: 'HAIR_CUT', fail: 'HAIR_CUT' }
+                ]
+            },
+            'HAIR_RESIST': { id: 'HAIR_RESIST', type: 'NARRATION', text: "The crowd woke up from their helplessness at your shout!\nA 'solidarity of anger' forms to protect you.\n(🟦 Identity increased)", image: 'Image/hairresist.jpg', effect: { action: 'GAIN_STAT', int: 30, war: -20, morale: 20, completeMission: 'ch3_hair' }, next: null },
+            'HAIR_CUT': { id: 'HAIR_CUT', type: 'NARRATION', text: "Your topknot was cut off. The crowd turns their heads away.\n'A shared resignation'. Everyone swallows their own humiliation.\n(🟥 Japan Relations increased, 🎒 Japanese Pocket Watch obtained)", image: 'Image/haircut.jpg', effect: { action: 'GAIN_STAT', war: 30, int: -20, items: ['Japanese Pocket Watch'], completeMission: 'ch3_hair' }, next: null },
+
+            // Mini Games (Thematic Update)
+            'BINGATA_INTRO': { id: 'BINGATA_INTRO', type: 'NARRATION', text: "Chiyo the artisan unfolds a red cloth.\n\"My lord, clothes do not just cover the body. Even if the nation disappears in the distant future, if we encounter someone wearing this Bingata, we will know we are siblings without a single word.\nPlease find that 'Color of Promise'.\"", image: 'Image/bingata1.jpg', effect: { action: 'START_QUIZ' }, next: null },
+            'BINGATA_CORRECT': { id: 'BINGATA_CORRECT', type: 'NARRATION', text: "A red flower bloomed. It is our indelible mark and pride.\n(🎒 Obtained Bingata Design)", image: 'Image/bingata2.jpg', effect: { action: 'GAIN_STAT', int: 30, items: ['Bingata Design'], completeMission: 'ch3_bingata' }, next: null },
+            'BINGATA_WRONG': { id: 'BINGATA_WRONG', type: 'NARRATION', text: "You picked the wrong color. Memories fade away...", image: 'Image/bingata3.jpg', effect: { action: 'FAIL_EVENT', morale: -10, int: -10, completeMission: 'ch3_bingata' }, next: null },
+
+            'DANCE_INTRO': { id: 'DANCE_INTRO', type: 'NARRATION', text: "Matsu the dancer reaches out.\n\"If they cover our mouths, we can speak with gestures. The rhythm of 'waves (adversity)' and 'rocks (endurance)' hidden in my dance...\nTo the Japanese, it's just a dance, but our people will read the signal 'Hold on, survive' in it.\nPlease become my conductor.\"", image: 'Image/danceintro.jpg', effect: { action: 'START_RHYTHM' }, next: null },
+
+            'DANCE_P': { id: 'DANCE_P', type: 'NARRATION', text: "[Legendary Success] Every Ryukyuan in the theater exchanged silent glances.\nIn that moment, they became not a defeated people, but a 'silent army'.\n(🏆 Title: [Heir to Ryukyuan Dance], 🎒 Red Hanagasa, 🟦 Identity MAX)", image: 'Image/dancep.jpg', effect: { action: 'GAIN_STAT', int: 100, morale: 50, items: ['Red Hanagasa', 'Intangible Cultural Asset Certificate'], completeMission: 'ch3_dance' }, next: null },
+            'DANCE_S': { id: 'DANCE_S', type: 'NARRATION', text: "[Great Success] The dance movements spread like waves. Sparks fly in the people's hearts.\n(🎒 Red Hanagasa, 🟦 Identity increased)", image: 'Image/dances.jpg', effect: { action: 'GAIN_STAT', int: 40, morale: 20, items: ['Red Hanagasa'], completeMission: 'ch3_dance' }, next: null },
+            'DANCE_B': { id: 'DANCE_B', type: 'NARRATION', text: "[Success] It was a decent performance.", image: 'Image/danceb.jpg', effect: { action: 'GAIN_STAT', int: 10, completeMission: 'ch3_dance' }, next: null },
+            'DANCE_F': { id: 'DANCE_F', type: 'NARRATION', text: "[Failure] The rhythm was broken. The signal was not delivered...", image: 'Image/dancef.jpg', effect: { action: 'FAIL_EVENT', morale: -20, completeMission: 'ch3_dance' }, next: null },
+
+            // Ch3 Climax: The Gathering (Nation Soul)
+            'CH3_GATHERING': { id: 'CH3_GATHERING', type: 'NARRATION', text: "At night, small lanterns gather beneath Shuri Castle.\nSomeone remembering the red cloth, someone the rhythm of the dance...\n\nOne person's memory is a recollection, but ten thousand people's memory becomes history.\nEven if the nation is erased, as long as this 'shared memory' exists, Ryukyu will not perish.\n\n(🟦 Nation Soul MAX)", image: 'Image/gathering.jpg', effect: { action: 'GAIN_STAT', chapter: 4, morale: 50 }, next: null },
+
+            // Ch4: The Shadow Kingdom (1878)
+            'CH4_START': { id: 'CH4_START', type: 'NARRATION', text: "1878. The Japanese army began burning our history books.\nA people unrecorded is a people unremembered.\nWe must survive in these flames.", image: 'Image/ch4start.jpg', next: 'CH4_BRANCH_POINT' },
+
+            'CH4_AWAKENING': { id: 'CH4_AWAKENING', type: 'NARRATION', text: "[Awakening] In a dream, 'King Shunten', the founding ancestor of ancient Ryukyu, appears.\n\"The soul of Ryukyu resides in the tip of your brush. Fear not. Your records shall not disappear.\"\n(✨ Obtained Trait: [Blessing of Niraikanai] - Can resist fate, Identity limit broken!)", image: 'Image/ch4fighting.jpg', effect: { action: 'GAIN_STAT', traits: ['Blessing of Niraikanai'], int: 10, morale: 100 }, next: 'CH4_LIBRARY' },
+
+            'CH4_LIBRARY': {
+                id: 'CH4_LIBRARY',
+                type: 'NARRATION',
+                text: "Japanese army guards are patrolling the archives.\nYou must covertly move to where the 'Rekidai Hoan' is while avoiding their eyes.\n\n(Start when ready)",
+                image: 'Image/ch4book.jpg',
+                effect: { action: 'START_STEALTH' },
+                next: null
+            },
+            'CH4_LIB_SUCCESS': {
+                id: 'CH4_LIB_SUCCESS',
+                type: 'NARRATION',
+                text: "[Success] You perfectly deceived the eyes of the guards.\nYou secured the 'Rekidai Hoan' containing the history of Ryukyu deep within the archives.\n(🟦 Identity greatly increased)",
+                image: 'Image/booksuccess.jpg',
+                effect: { action: 'GAIN_STAT', int: 40, items: ['Original Rekidai Hoan'], completeMission: 'ch4_library' },
+                next: null
+            },
+            'CH4_LIB_FAIL': {
+                id: 'CH4_LIB_FAIL',
+                type: 'CHOICE',
+                text: "[Failed] \"Who goes there!\"\nYou were spotted! You fled in a hurry but must try again.",
+                image: 'Image/bookfail.jpg',
+                choices: [
+                    { text: "Infiltrate again (Retry)", type: 'INT', diff: 0, success: 'CH4_LIBRARY' },
+                    { text: "Give up (Mission Fail)", type: 'WAR', diff: 0, success: 'CH4_LIB_GIVEUP' }
+                ]
+            },
+            'CH4_LIB_GIVEUP': {
+                id: 'CH4_LIB_GIVEUP',
+                type: 'NARRATION',
+                text: "The security was too tight to approach...\n(Identity decreased)",
+                effect: { action: 'FAIL_EVENT', int: -20, completeMission: 'ch4_library' },
+                next: null
+            },
+
+
+
+            'CH4_BLOODLINE': {
+                id: 'CH4_BLOODLINE', type: 'CHOICE', text: "You must evacuate the young grandson of King Sho Tai. The checkpoints are heavily guarded.", image: 'Image/ch4prince.jpg', choices: [
+                    { text: "[Bribe] Use funds to bribe them. (Funds -30)", type: 'MONEY', cost: 30, success: 'CH4_BLOOD_BRIBE', fail: 'CH4_BLOOD_FAIL' },
+                    { text: "[Act] Disguise as a patient with an infectious disease.", type: 'CHA', diff: 60, success: 'CH4_BLOOD_ACT', fail: 'CH4_BLOOD_FAIL' }
+                ]
+            },
+            'CH4_BLOOD_BRIBE': { id: 'CH4_BLOOD_BRIBE', type: 'NARRATION', text: "The guard who received the money turned a blind eye. The royal grandson is safe.", image: 'Image/ch4prince3.jpg', effect: { action: 'GAIN_STAT', cha: 20, completeMission: 'ch4_bloodline' }, next: null },
+            'CH4_BLOOD_ACT': { id: 'CH4_BLOOD_ACT', type: 'NARRATION', text: "The guards were terrified by the sick act and cleared the way. Your wits shined!", image: 'Image/ch4prince2.jpg', effect: { action: 'GAIN_STAT', cha: 40, completeMission: 'ch4_bloodline' }, next: null },
+            'CH4_BLOOD_FAIL': { id: 'CH4_BLOOD_FAIL', type: 'NARRATION', text: "Discovered! The royal grandson was detained, and you were beaten.", image: 'Image/ch4prince4.jpg', effect: { action: 'FAIL_EVENT', morale: -30, war: -10, completeMission: 'ch4_bloodline' }, next: null },
+
+            'CH4_KARATE': {
+                id: 'CH4_KARATE', type: 'CHOICE', text: "Matsumura, the martial artist, has arrived.\n\"I will buy time to protect your records.\"", image: 'Image/karate.jpg', choices: [
+                    { text: "[Form] Organize a guard corps.", type: 'WAR', diff: 0, success: 'CH4_KARATE_YES', fail: 'CH4_KARATE_YES' },
+                    { text: "[Refuse] Do not want any sacrifices.", type: 'INT', diff: 0, success: 'CH4_KARATE_NO', fail: 'CH4_KARATE_NO' }
+                ]
+            },
+            'CH4_KARATE_YES': { id: 'CH4_KARATE_YES', type: 'NARRATION', text: "The fists of Ryukyu have gathered. They will face guns and swords with bare hands.", image: 'Image/karateyes.jpg', effect: { action: 'GAIN_STAT', war: 50, completeMission: 'ch4_karate' }, next: null },
+            'CH4_KARATE_NO': { id: 'CH4_KARATE_NO', type: 'NARRATION', text: "You sent them back. Now it is a fight of your own.", image: 'Image/karateno.jpg', effect: { action: 'GAIN_STAT', int: 10, completeMission: 'ch4_karate' }, next: null },
+
+            // Ch5: Sunset of Shuri
+            'FINAL_INVASION': {
+                id: 'FINAL_INVASION',
+                type: 'NARRATION',
+                text: "March 27, 1879.\n\nThe sound of 600 Japanese soldiers' military boots echoes between the red pillars of Shuri Castle.\n\n\"Escort the King! We abolish the Ryukyu Domain and establish Okinawa Prefecture!\"\n\nDisposition Officer Matsuda's voice pierces like a dagger.",
+                image: 'Video/final.mp4',
+                next: 'FINAL_KING_AUDIENCE'
+            },
+            'FINAL_KING_AUDIENCE': {
+                id: 'FINAL_KING_AUDIENCE',
+                type: 'DIALOG',
+                npc: 'King Sho Tai',
+                text: "(Rising weakly from the throne)\n\n\"Majikina... The land will be taken. The palace will lose its master.\nBut... we cannot hand over the 500-year soul of Ryukyu to them.\n\nWhat will you protect at the very end?\"",
+                image: 'Video/finalking.mp4',
+                next: 'FINAL_CHOICE'
+            },
+            'FINAL_CHOICE': {
+                id: 'FINAL_CHOICE',
+                type: 'CHOICE',
+                text: "At the King's question, you tightly grip what you have hidden in your chest.",
+                image: 'Image/finalchoice.jpg',
+                choices: [
+                    {
+                        text: "[TRUE] \"Though the nation disappears, the song remains.\" (Distribute Bingata/Score)",
+                        condition: (p) => p.stats.int >= 80 && (p.inventory.includes("Bingata Design") || p.inventory.includes("Red Hanagasa") || p.inventory.includes('Old Sanshin Score')),
+                        failText: "(Requirement: Identity 80+, Possess Cultural Heritage)",
+                        success: 'ENDING_SEQ_TRUE',
+                        fail: 'FINAL_BAD_FORCE'
+                    },
+                    {
+                        text: "[NORMAL] \"I will protect the safety of the royal family and my clan.\" (Negotiation and compliance)",
+                        condition: (p) => p.stats.war >= 70 && p.inventory.includes("Japanese Pocket Watch"),
+                        failText: "(Requirement: Japan Relations 70+, Pocket Watch)",
+                        success: 'ENDING_SEQ_NORMAL',
+                        fail: 'FINAL_BAD_FORCE'
+                    },
+                    {
+                        text: "[SAD] \"We must plan for the future. Let us go to Qing.\" (Attempt exile)",
+                        condition: (p) => p.stats.cha >= 80 && (p.inventory.includes("Old Map") || p.inventory.includes("Hidden Royal Seal")),
+                        failText: "(Requirement: Qing Relations 80+, Map/Seal)",
+                        success: 'ENDING_SEQ_SAD',
+                        fail: 'FINAL_BAD_FORCE'
+                    },
+                    {
+                        text: "[BAD] \"We cannot end it like this! Fight to the death!\" (Reckless charge)",
+                        success: 'ENDING_SEQ_BAD',
+                        fail: 'ENDING_SEQ_BAD'
+                    }
+                ]
+            },
+
+            // --- ENDING SEQUENCES ---
+            'ENDING_SEQ_TRUE': {
+                id: 'ENDING_SEQ_TRUE', type: 'NARRATION',
+                text: "Taking advantage of the chaos as the Japanese army escorts the King away, you threw the [Bingata Design] and [Sanshin Score] over the wall.\n\n\"Take this! This is our soul! Do not forget!\"\n\nNumerous people pick them up, hold them to their chests, and scatter.\nThough Shuri Castle falls today, the song passed from mouth to mouth will be eternal.",
+                image: 'Image/happyending.jpg',
+                effect: { action: 'GAME_CLEAR', endingType: 'TRUE' }, next: null
+            },
+            'ENDING_SEQ_NORMAL': {
+                id: 'ENDING_SEQ_NORMAL', type: 'NARRATION',
+                text: "You took out the [Japanese Pocket Watch], showed it to Disposition Officer Matsuda, and bowed your head.\n\n\"A wise judgment. Your family will receive the title of 'Baron'.\"\n\nThe king was taken to Tokyo, and you obtained a safe mansion.\nHowever, the person reflected in the mirror... was an unfamiliar stranger in Japanese clothes.",
+                image: 'Image/normalending.jpg',
+                effect: { action: 'GAME_CLEAR', endingType: 'NORMAL' }, next: null
+            },
+            'ENDING_SEQ_SAD': {
+                id: 'ENDING_SEQ_SAD', type: 'NARRATION',
+                text: "Under the cover of darkness, you boarded an old wooden boat.\nYou braved the rough waves and arrived in Qing, but...\n\n\"Ryukyu? Why should we help a nation that has already perished?\"\n\nNo one opened the door. On a cold foreign street, you close your eyes, looking at the fading lights of your homeland.",
+                image: 'Image/sadending.jpg',
+                effect: { action: 'GAME_CLEAR', endingType: 'SAD' }, next: null
+            },
+            'ENDING_SEQ_BAD': {
+                id: 'ENDING_SEQ_BAD', type: 'NARRATION',
+                text: "\"You scoundrels!! How dare you step on Ryukyu soil!!\"\n\nYou drew your hidden sword and charged at Matsuda.\n\n(Bang! Ba-bang!)\n\nAlong with the cold smell of gunpowder, your vision turns red.\nIn your fallen eyes, the burning Shuri Castle is reflected for the last time.",
+                image: 'Image/badending.jpg',
+                effect: { action: 'GAME_OVER', endingType: 'BAD' }, next: null
+            },
+            'FINAL_BAD_FORCE': {
+                id: 'FINAL_BAD_FORCE', type: 'NARRATION',
+                text: "You tried to do something... but nothing was prepared.\nWhile you were panicking, the Japanese army surrounded you.\n\n\"Drag him out.\"",
+                image: 'Image/badforce.jpg',
+                effect: { action: 'GAME_OVER', endingType: 'BAD' }, next: null
+            }
+        };
+
+        // --- ITEM DATA ---
+        const ITEM_DB = {
+            'Bingata Design': { icon: '🌺', image: 'Image/realbingata.png', type: 'Cultural Heritage', desc: 'The Bingata design of the Ryukyu royal family.\nIt is the color of the nation that will not fade despite any trials.' },
+            'Red Hanagasa': { icon: '👒', image: 'Image/redhat.png', type: 'Cultural Heritage', desc: 'A red conical hat used in traditional dance.\nWhen dancing with this, hearts connect without speaking.' },
+            'Japanese Pocket Watch': { icon: '🕰️', image: 'Image/watch.png', type: 'Valuable', desc: 'A symbol of modernization that tells time accurately.\nHowever, the ticking sound somehow feels cold.' },
+            'Old Map': { icon: '🗺️', image: 'Image/map.png', type: 'Key Item', desc: 'A map showing the secret sea route to Qing.\nIt is stained with seawater and tears.' },
+            'Hidden Royal Seal': { icon: '💠', image: 'Image/hiden.png', type: 'National Treasure', desc: 'The seal of the King of Ryukyu.\nBuried deep in the ground, waiting for the day it sees light again.' },
+            'Record of Truth': { icon: '📜', image: 'Image/realimportant.png', type: 'Document', desc: 'A document recording the tragedy of the Taiwanese castaways incident.\nIt is the only weapon against false pretexts.' },
+            'Dual Nationality Certificate': { icon: '⚖️', image: 'Image/2.png', type: 'Document', desc: 'A document obtained by walking a tightrope between Qing and Japan.\nA product of desperate diplomacy for survival.' },
+            'Old Sanshin Score': { icon: '🎸', image: 'Image/music.png', type: 'Cultural Heritage', desc: 'A score with the forgotten old songs of Ryukyu.\nEven as time passes, this melody will remain.' },
+            'Original Rekidai Hoan': { icon: '📚', image: 'Image/historybook.png', type: 'National Treasure', desc: 'A top-secret document containing the history of Ryukyu diplomacy.\nIt is the evidence proving we were an independent nation.' },
+            'Japanese Official Uniform': { icon: '👘', image: 'Image/japanst.png', type: 'Clothing', desc: 'Clothes worn by Japanese nobles.\nIt fits the body, but not the heart.' },
+            'Humiliating Treaty': { icon: '📜', image: '', type: 'Document', desc: 'A treaty yielding sovereignty.' },
+            'Broken Royal Seal Piece': { icon: '💠', image: '', type: 'Fragment', desc: 'A broken piece of the royal seal.' },
+            'Qing Jade Pendant': { icon: '📿', image: '', type: 'Valuable', desc: 'A jade pendant representing goodwill from Qing.' },
+            'Intangible Cultural Asset Certificate': { icon: '📄', image: '', type: 'Document', desc: 'A certificate recognizing cultural mastery.' },
+            'default': { icon: '📦', color: 'from-gray-500 to-gray-700', type: 'Misc', desc: 'It is a normal item.' }
+        };
+
+        // --- MAIN APP ---
+        const RyukyuGame = () => {
+            const [phase, setPhase] = useState('TITLE');
+            const [chapter, setChapter] = useState(1);
+            const [turn, setTurn] = useState(1);
+            const [maxAp, setMaxAp] = useState(3);
+            const [currentAp, setCurrentAp] = useState(3);
+            const [currentScene, setCurrentScene] = useState(null);
+            const [logs, setLogs] = useState([]);
+            const [isChapterCleared, setChapterCleared] = useState(false);
+            const [completedMissions, setCompletedMissions] = useState(new Set());
+
+            // Inventory UI State
+            const [showInventory, setShowInventory] = useState(false);
+            const [viewingItem, setViewingItem] = useState(null);
+
+            const [endingType, setEndingType] = useState(null);
+
+            const [player, setPlayer] = useState({
+                name: 'Majikina',
+                stats: { int: 50, war: 30, cha: 30 },
+                funds: 50,
+                morale: 80,
+                inventory: [],
+                traits: []
+            });
+
+            // --- DEBUG CHEAT MENU REMOVED ---
+
+            // Sound Effect Logic
+            const audioRef = useRef(new Audio('https://actions.google.com/sounds/v1/cartoon/pop.ogg'));
+
+            useEffect(() => {
+                const handleGlobalClick = (e) => {
+                    if (e.target.closest('button')) {
+                        try {
+                            const sound = audioRef.current.cloneNode(true);
+                            sound.volume = 0.5;
+                            sound.play().catch(err => console.log('Audio Autoplay Blocked:', err));
+                        } catch (err) {
+                            console.error('Audio Error:', err);
+                        }
+                    }
+                };
+
+                window.addEventListener('click', handleGlobalClick);
+                return () => window.removeEventListener('click', handleGlobalClick);
+            }, []);
+
+            // Video Refs
+            const videoRef = useRef(null);
+            useEffect(() => {
+                const tryPlay = async () => {
+                    if (phase === 'TITLE' && videoRef.current) {
+                        try {
+                            await videoRef.current.play();
+                            videoRef.current.muted = false;
+                        } catch (e) {
+                            videoRef.current.muted = true;
+                            videoRef.current.play();
+                        }
+                    }
+                };
+                tryPlay();
+
+                const unlockAudio = () => {
+                    if (videoRef.current) {
+                        videoRef.current.muted = false;
+                        videoRef.current.play().catch(() => { });
+                    }
+                    window.removeEventListener('click', unlockAudio);
+                    window.removeEventListener('touchstart', unlockAudio);
+                    window.removeEventListener('keydown', unlockAudio);
+                };
+
+                window.addEventListener('click', unlockAudio);
+                window.addEventListener('touchstart', unlockAudio);
+                window.addEventListener('keydown', unlockAudio);
+
+                return () => {
+                    window.removeEventListener('click', unlockAudio);
+                    window.removeEventListener('touchstart', unlockAudio);
+                    window.removeEventListener('keydown', unlockAudio);
+                };
+            }, [phase]);
+
+            const startScene = (sceneId) => {
+                if (!SCENES[sceneId]) {
+                    console.error(`❌ Error: Scene ID '${sceneId}' not found in SCENES object.`);
+                    alert(`Error: Could not find scene data for '${sceneId}'. (Check Console)`);
+                    return;
+                }
+
+                if (sceneId === 'CH4_BRANCH_POINT') {
+                    if (player.stats.int >= 100) {
+                        setCurrentScene(SCENES['CH4_AWAKENING']);
+                    } else {
+                        setCurrentScene(SCENES['CH4_LIBRARY']);
+                    }
+                    return;
+                }
+
+                setCurrentScene(SCENES[sceneId]);
+                setPhase('SCENE');
+            };
+
+            const nextScene = (nextId) => {
+                if (nextId === 'CH4_BRANCH_POINT') {
+                    if (player.stats.int >= 100) setCurrentScene(SCENES['CH4_AWAKENING']);
+                    else setCurrentScene(SCENES['CH4_LIBRARY']);
+                    return;
+                }
+
+                if (!nextId) {
+                    setPhase('GAME');
+                    setCurrentScene(null);
+                    return;
+                }
+                setCurrentScene(SCENES[nextId]);
+            };
+
+            const spendAp = (cost = 1) => {
+                if (currentAp < cost) { alert("Not enough Action Points."); return false; }
+                setCurrentAp(p => p - cost);
+                return true;
+            };
+
+            const handleChoice = (choice) => {
+                if (choice.condition) {
+                    const context = { ...player, completedMissions };
+                    if (!choice.condition(context)) {
+                        alert(choice.failText || "Conditions not met.");
+                        return;
+                    }
+                }
+
+                if (choice.type === 'MONEY') {
+                    if (player.funds < choice.cost) { alert("Not enough funds!"); return; }
+                    setPlayer(p => ({ ...p, funds: p.funds - choice.cost }));
+                    nextScene(choice.success);
+                    return;
+                }
+                if (choice.diff > 0) {
+                    const stat = player.stats[choice.type.toLowerCase()];
+                    if (Math.random() * 100 < Math.min(95, 50 + (stat - choice.diff) * 2)) nextScene(choice.success);
+                    else nextScene(choice.fail);
+                } else {
+                    nextScene(choice.success);
+                }
+            };
+
+            const handleStealthComplete = (isSuccess) => {
+                if (isSuccess) {
+                    setPhase('SCENE');
+                    nextScene('CH4_LIB_SUCCESS');
+                } else {
+                    setPhase('SCENE');
+                    nextScene('CH4_LIB_FAIL');
+                }
+            };
+
+            const handleEffect = (effect) => {
+                if (!effect) return;
+
+                if (effect.completeMission) {
+                    setCompletedMissions(prev => new Set(prev).add(effect.completeMission));
+                }
+
+                if (effect.action === 'GAIN_STAT' || effect.action === 'FAIL_EVENT') {
+                    const statCap = (player.traits && player.traits.includes('Blessing of Niraikanai')) ? 120 : 100;
+                    setPlayer(p => ({
+                        ...p,
+                        stats: {
+                            int: Math.min(statCap, Math.max(0, p.stats.int + (effect.int || 0))),
+                            war: Math.min(statCap, Math.max(0, p.stats.war + (effect.war || 0))),
+                            cha: Math.min(statCap, Math.max(0, p.stats.cha + (effect.cha || 0))),
+                        },
+                        funds: p.funds + (effect.funds || 0),
+                        morale: Math.min(100, Math.max(0, p.morale + (effect.morale || 0))),
+                        inventory: effect.items ? [...p.inventory, ...effect.items] : p.inventory,
+                        traits: effect.traits ? [...(p.traits || []), ...effect.traits] : (p.traits || [])
+                    }));
+                    if (effect.items) setLogs(p => [`🎒 Obtained: ${effect.items.join(', ')}`, ...p]);
+                }
+
+                if (effect.action === 'UNLOCK_CHAPTER' || effect.unlockChapter) {
+                    setChapterCleared(true);
+                }
+
+                if (effect.action === 'GAME_CLEAR') {
+                    setEndingType(effect.endingType);
+                    setPhase('ENDING');
+                }
+                else if (effect.action === 'GAME_OVER') {
+                    setEndingType(effect.endingType);
+                    setPhase('ENDING');
+                    setLogs(p => [`💀 GAME OVER`, ...p]);
+                }
+                else if (effect.action === 'NEXT_CHAPTER' || effect.chapter) {
+                    const nextChap = effect.chapter;
+                    setChapter(nextChap);
+                    setTurn(1);
+                    setCurrentAp(maxAp);
+                    setChapterCleared(false);
+                    setLogs(p => [`📜 Chapter ${nextChap} Start`, ...p]);
+
+                    if (nextChap === 2) startScene('CH2_START');
+                    else {
+                        setPhase('GAME');
+                        setCurrentScene(null);
+                    }
+                }
+                else if (effect.action === 'START_GAME') setPhase('GAME');
+                else if (effect.action === 'START_RHYTHM') setPhase('RHYTHM');
+                else if (effect.action === 'START_QUIZ') setPhase('QUIZ');
+                else if (effect.action === 'START_DEBATE') setPhase('DEBATE');
+                else if (effect.action === 'START_STEALTH') setPhase('STEALTH');
+                else if (effect.action === 'GAME_CLEAR') {
+                    setEndingType(effect.endingType);
+                    setPhase('ENDING');
+                }
+                else if (effect.action === 'GAME_OVER') {
+                    setEndingType('BAD');
+                    setPhase('ENDING');
+                }
+            };
+
+            const handleDebateComplete = (isWin) => {
+                setPhase('SCENE');
+                nextScene(isWin ? 'CH2_DEBATE_WIN' : 'CH2_DEBATE_LOSE');
+            };
+
+            const handleRhythmComplete = (rank, score) => {
+                setLogs(p => [`🎵 Dance Result: Rank ${rank} (${score} points)`, ...p]);
+                if (rank === 'P') setCurrentScene(SCENES['DANCE_P']);
+                else if (rank === 'S') setCurrentScene(SCENES['DANCE_S']);
+                else if (rank === 'B') setCurrentScene(SCENES['DANCE_B']);
+                else setCurrentScene(SCENES['DANCE_F']);
+                setPhase('SCENE');
+            };
+
+            const handleQuizComplete = (isCorrect) => {
+                if (isCorrect) setCurrentScene(SCENES['BINGATA_CORRECT']);
+                else setCurrentScene(SCENES['BINGATA_WRONG']);
+                setPhase('SCENE');
+            };
+
+            const isCh1Ready = completedMissions.has('ch1_patrol') && completedMissions.has('ch1_market');
+            const isCh2Ready = completedMissions.has('ch2_rescue') && completedMissions.has('ch2_debate') && completedMissions.has('ch2_info');
+            const isCh3Ready = completedMissions.has('ch3_bingata') && completedMissions.has('ch3_dance') && completedMissions.has('ch3_hair');
+            const isCh4Ready = completedMissions.has('ch4_library') && completedMissions.has('ch4_bloodline');
+
+            const calculateScore = () => {
+                let score = 0;
+                score += player.inventory.length * 2000;
+                score += player.stats.int * 50 + player.stats.war * 10 + player.stats.cha * 10;
+                score += player.funds * 5;
+
+                if (endingType === 'TRUE') score += 10000;
+                else if (endingType === 'NORMAL') score += 5000;
+                else if (endingType === 'SAD') score += 3000;
+                else if (endingType === 'BAD' || endingType === 'HIDDEN') score += 4000;
+
+                return score;
+            };
+
+            const getCollectorRank = () => {
+                const count = player.inventory.length;
+                if (count >= 5) return "Guardian of Ryukyu";
+                if (count >= 3) return "Keeper of Memories";
+                return "Wanderer";
+            };
+
+            return (
+                <div className="w-full h-screen font-sans-kr text-slate-100 relative bg-black">
+                    <GlobalStyles />
+
+                    {/* DEBUG MENU OVERLAY REMOVED */}
+
+                    {/* TITLE */}
+                    {phase === 'TITLE' && (
+                        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center p-4 text-center overflow-hidden">
+                            <video ref={videoRef} src="Video/Intro.mp4" className="absolute inset-0 w-full h-full object-cover opacity-40" autoPlay loop muted playsInline />
+
+                            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/80"></div>
+
+                            <div className="relative z-10 animate-fade-in">
+                                <h1 className="text-5xl md:text-7xl font-cinzel text-teal-400 mb-4 drop-shadow-2xl tracking-widest">RYUKYU</h1>
+                                <p className="text-gray-400 font-myeongjo text-lg mb-12 tracking-widest">The Jade Memory</p>
+                                <button onClick={() => startScene('START')} className="px-12 py-4 border-2 border-teal-500 text-teal-400 hover:bg-teal-500 hover:text-black transition-all duration-500 font-cinzel text-xl tracking-widest game-btn">
+                                    ENTER MEMORY
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MAIN UI (GAME/SCENE) */}
+                    {phase !== 'TITLE' && (
+                        <div className="relative w-full h-full flex flex-col">
+                            {/* Top Bar */}
+                            <div className="fixed top-0 left-0 w-full bg-gradient-to-b from-black/90 to-transparent p-4 z-50 flex justify-between text-white border-b border-white/10">
+                                <div className="flex items-center gap-4">
+                                    <div className="font-bold text-lg text-teal-400 drop-shadow-md font-cinzel">{CHAPTERS[chapter].location}</div>
+                                    <div className="text-sm text-gray-300">Day {turn}</div>
+                                    <div className="flex gap-1">{[...Array(maxAp)].map((_, i) => <div key={i} className={`w-3 h-3 rounded-full border border-white/50 ${i < currentAp ? 'bg-teal-500' : 'bg-transparent'}`}></div>)}</div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2"><Coins size={14} className="text-yellow-400" /><span className="font-mono">{player.funds}</span></div>
+                                    <div className="flex items-center gap-2"><Activity size={14} className="text-red-400" /><span className="font-mono">{player.morale}</span></div>
+                                </div>
+                            </div>
+
+                            {/* Background */}
+                            <div className="absolute inset-0 z-0">
+                                {(() => {
+                                    const bgSource = currentScene?.image || CHAPTERS[chapter].bgImage;
+                                    return bgSource?.endsWith('.mp4') ? (
+                                        <video src={bgSource} className="absolute inset-0 w-full h-full object-cover opacity-90" autoPlay playsInline />
+                                    ) : (
+                                        <img src={bgSource} className="absolute inset-0 w-full h-full object-cover opacity-90" onError={(e) => e.target.src = 'https://images.unsplash.com/photo-1542044806-25330e628830'} />
+                                    );
+                                })()}
+                                <div className="absolute inset-0 bg-black/10"></div>
+                            </div>
+
+                            {/* Bottom Panel (Controls & Content) */}
+                            <div className="fixed bottom-0 left-0 w-full h-[45vh] bg-gradient-to-t from-black via-black/95 to-transparent z-40 flex flex-col p-6 animate-fade-in">
+
+                                {phase === 'GAME' && (
+                                    <div className="flex-1 flex flex-col md:flex-row gap-4 h-full overflow-hidden">
+                                        {/* Status Panel (Left) */}
+                                        <div className="w-full md:w-1/3 bg-black/60 p-4 rounded-lg border border-white/10 backdrop-blur-md overflow-y-auto">
+                                            <div className="mb-4 text-center">
+                                                <div className="font-bold text-teal-400 text-xl font-cinzel mb-2">{player.name}</div>
+                                                <div className="space-y-1">
+                                                    <StatBar label="Identity" value={player.stats.int} color="bg-teal-500" icon={IdentityIcon} />
+                                                    <StatBar label="Japan" value={player.stats.war} color="bg-red-500" icon={JapanIcon} />
+                                                    <StatBar label="Qing" value={player.stats.cha} color="bg-yellow-500" icon={QingIcon} />
+                                                </div>
+                                            </div>
+                                            <div className="text-xs font-bold text-gray-400 mb-2 border-b border-gray-700 pb-1 flex justify-between items-center">
+                                                <span>INVENTORY</span>
+                                                <span className="text-[10px] text-gray-500">{player.inventory.length} ITEMS</span>
+                                            </div>
+                                            <button
+                                                onClick={() => setShowInventory(true)}
+                                                className="w-full bg-gradient-to-r from-teal-900/40 to-emerald-900/40 hover:from-teal-800 hover:to-emerald-800 border border-teal-500/30 rounded p-3 group transition-all relative overflow-hidden"
+                                            >
+                                                <div className="absolute inset-0 bg-teal-500/10 translate-y-full group-hover:translate-y-0 transition-transform"></div>
+                                                <div className="relative flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-2xl filter drop-shadow-lg group-hover:scale-110 transition-transform">🎒</span>
+                                                        <div className="text-left">
+                                                            <div className="text-teal-100 font-cinzel font-bold text-sm">INVENTORY</div>
+                                                            <div className="text-[10px] text-teal-400/70"></div>
+                                                        </div>
+                                                    </div>
+                                                    <ArrowRight size={16} className="text-teal-400 group-hover:translate-x-1 transition-transform" />
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        {/* Mission Panel (Right) */}
+                                        <div className="flex-1 flex flex-col gap-4">
+                                            <div className="flex-1 bg-black/60 p-4 rounded-lg border border-white/10 backdrop-blur-md overflow-y-auto">
+                                                <div className="text-sm font-bold text-teal-400 mb-3 border-b border-gray-700 pb-2 flex items-center gap-2 font-cinzel"><Flag size={14} /> CURRENT MISSIONS</div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    {chapter === 1 && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => { if (spendAp(1)) startScene('CH1_ROYAL'); }}
+                                                                disabled={completedMissions.has('ch1_royal')}
+                                                                className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch1_royal') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}
+                                                            >
+                                                                <div className="font-bold text-gray-200 text-sm flex items-center gap-2">
+                                                                    {completedMissions.has('ch1_royal') && <Check size={14} />} Royal Audience (MAIN)
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">{completedMissions.has('ch1_royal') ? 'Completed' : 'King Sho Tai\'s Call'}</div>
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => { if (spendAp(1)) startScene('CH1_MARKET'); }}
+                                                                disabled={completedMissions.has('ch1_market')}
+                                                                className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch1_market') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}
+                                                            >
+                                                                <div className="font-bold text-gray-200 text-sm flex items-center gap-2">
+                                                                    {completedMissions.has('ch1_market') && <Check size={14} />} Sugar War (SUB)
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">{completedMissions.has('ch1_market') ? 'Completed' : 'Economic Crisis Response'}</div>
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => { if (spendAp(1)) startScene('CH1_TAVERN'); }}
+                                                                disabled={completedMissions.has('ch1_tavern')}
+                                                                className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch1_tavern') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}
+                                                            >
+                                                                <div className="font-bold text-gray-200 text-sm flex items-center gap-2">
+                                                                    {completedMissions.has('ch1_tavern') && <Check size={14} />} Tavern Rumors (SUB)
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">{completedMissions.has('ch1_tavern') ? 'Completed' : 'Information Gathering'}</div>
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => { if (spendAp(1)) startScene('CH1_CLIMAX'); }}
+                                                                disabled={!completedMissions.has('ch1_royal') || !completedMissions.has('ch1_market') || !completedMissions.has('ch1_tavern') || isChapterCleared}
+                                                                className={`p-4 border rounded text-left game-btn ${(!completedMissions.has('ch1_royal') || !completedMissions.has('ch1_market') || !completedMissions.has('ch1_tavern')) ? 'border-red-900 bg-red-900/10 opacity-70 cursor-not-allowed' : (isChapterCleared ? 'border-gray-800 opacity-50' : 'border-teal-500/50 bg-teal-900/20 hover:bg-teal-900/40')}`}
+                                                            >
+                                                                <div className={`font-bold text-sm flex items-center gap-2 ${(!completedMissions.has('ch1_royal') || !completedMissions.has('ch1_market') || !completedMissions.has('ch1_tavern')) ? 'text-red-400' : 'text-teal-200'}`}>
+                                                                    {isChapterCleared ? <Check size={14} /> : ((!completedMissions.has('ch1_royal') || !completedMissions.has('ch1_market') || !completedMissions.has('ch1_tavern')) ? <Lock size={14} /> : '★')} Bloody Gratitude Letter
+                                                                </div>
+                                                                <div className="text-xs opacity-70">
+                                                                    {isChapterCleared ? 'Completed' : ((!completedMissions.has('ch1_royal') || !completedMissions.has('ch1_market') || !completedMissions.has('ch1_tavern')) ? 'Must complete all missions' : 'Climax')}
+                                                                </div>
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => handleEffect({ action: 'NEXT_CHAPTER', chapter: 2 })}
+                                                                disabled={!isChapterCleared}
+                                                                className={`p-4 border rounded text-left game-btn transition-all col-span-1 md:col-span-2 ${isChapterCleared ? 'border-yellow-500 bg-yellow-900/30 hover:bg-yellow-900/50 cursor-pointer animate-pulse' : 'border-gray-800 bg-black/40 opacity-50 cursor-not-allowed'}`}
+                                                            >
+                                                                <div className={`font-bold text-sm flex items-center justify-center gap-2 ${isChapterCleared ? 'text-yellow-200' : 'text-gray-600'}`}>
+                                                                    {isChapterCleared ? <ChevronRight size={14} /> : <Lock size={14} />} Move to Chapter 2
+                                                                </div>
+                                                                <div className="text-xs text-center text-gray-500">{isChapterCleared ? 'Ready' : 'Main Story Required'}</div>
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    {chapter === 2 && (
+                                                        <>
+                                                            <button onClick={() => { if (spendAp(1)) startScene('CH2_RESCUE'); }} disabled={completedMissions.has('ch2_rescue')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch2_rescue') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch2_rescue') && <Check size={14} />} 🌊 Survivor Rescue</div><div className="text-xs text-gray-500">{completedMissions.has('ch2_rescue') ? 'Completed' : 'Taiwanese Castaway Incident'}</div></button>
+                                                            <button onClick={() => { if (spendAp(1)) startScene('CH2_DEBATE'); }} disabled={completedMissions.has('ch2_debate')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch2_debate') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch2_debate') && <Check size={14} />} ⚔️ Debate with Matsuda</div><div className="text-xs text-gray-500">{completedMissions.has('ch2_debate') ? 'Completed' : 'Defending the Cause'}</div></button>
+                                                            <button onClick={() => { if (spendAp(1)) startScene('CH2_INFO'); }} disabled={completedMissions.has('ch2_info')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch2_info') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch2_info') && <Check size={14} />} 👂 Harbor Information</div><div className="text-xs text-gray-500">{completedMissions.has('ch2_info') ? 'Completed' : 'Grasping Global Affairs'}</div></button>
+
+                                                            <button
+                                                                onClick={() => { if (spendAp(1)) startScene('CH2_CLIMAX'); }}
+                                                                disabled={!isCh2Ready || isChapterCleared}
+                                                                className={`p-4 border rounded text-left game-btn ${!isCh2Ready ? 'border-red-900 bg-red-900/10 opacity-70 cursor-not-allowed' : (isChapterCleared ? 'border-gray-800 opacity-50' : 'border-teal-500/50 bg-teal-900/20 hover:bg-teal-900/40')}`}
+                                                            >
+                                                                <div className={`font-bold text-sm flex items-center gap-2 ${!isCh2Ready ? 'text-red-400' : 'text-teal-200'}`}>
+                                                                    {isChapterCleared ? <Check size={14} /> : (!isCh2Ready ? <Lock size={14} /> : '★')} The Final Ultimatum (Climax)
+                                                                </div>
+                                                                <div className="text-xs opacity-70">{isChapterCleared ? 'Completed' : (!isCh2Ready ? 'Must complete all missions' : 'Fate of the Royal Seal')}</div>
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => handleEffect({ action: 'NEXT_CHAPTER', chapter: 3 })}
+                                                                disabled={!isChapterCleared}
+                                                                className={`p-4 border rounded text-left game-btn transition-all ${isChapterCleared ? 'border-yellow-500 bg-yellow-900/30 hover:bg-yellow-900/50 cursor-pointer animate-pulse' : 'border-gray-800 bg-black/40 opacity-50 cursor-not-allowed'}`}
+                                                            >
+                                                                <div className={`font-bold text-sm flex items-center gap-2 ${isChapterCleared ? 'text-yellow-200' : 'text-gray-600'}`}>
+                                                                    {isChapterCleared ? <ChevronRight size={14} /> : <Lock size={14} />} Move to Chapter 3
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">{isChapterCleared ? 'Ready' : 'Main Story Required'}</div>
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    {chapter === 3 && (
+                                                        <>
+                                                            <button className="col-span-1 md:col-span-2 p-3 bg-teal-900/20 border border-teal-500/20 rounded text-center text-teal-200 font-cinzel text-sm animate-pulse mb-2 hover:bg-teal-900/40" onClick={() => startScene('CH3_START')}>
+                                                                Chapter 3 Prelude: Solidarity of Memories (Prologue)
+                                                            </button>
+
+                                                            <button onClick={() => { if (spendAp(1)) startScene('BINGATA_INTRO'); }} disabled={completedMissions.has('ch3_bingata')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch3_bingata') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch3_bingata') && <Check size={14} />} 🌺 Red Bingata</div><div className="text-xs text-gray-500">{completedMissions.has('ch3_bingata') ? 'Completed' : 'Color of Promise (Quiz)'}</div></button>
+                                                            <button onClick={() => { if (spendAp(1)) startScene('DANCE_INTRO'); }} disabled={completedMissions.has('ch3_dance')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch3_dance') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch3_dance') && <Check size={14} />} 🎵 Moonlight Dance</div><div className="text-xs text-gray-500">{completedMissions.has('ch3_dance') ? 'Completed' : 'Silent Army (Rhythm)'}</div></button>
+                                                            <button onClick={() => { if (spendAp(1)) startScene('HAIR_1'); }} disabled={completedMissions.has('ch3_hair')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch3_hair') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch3_hair') && <Check size={14} />} ✂️ Short Hair Edict</div><div className="text-xs text-gray-500">{completedMissions.has('ch3_hair') ? 'Completed' : 'Shared Wounds'}</div></button>
+
+                                                            <button
+                                                                onClick={() => { if (isCh3Ready) startScene('CH3_GATHERING'); }}
+                                                                disabled={!isCh3Ready || isChapterCleared}
+                                                                className={`p-4 border rounded text-center col-span-1 md:col-span-2 game-btn transition-all ${isCh3Ready && !isChapterCleared ? 'border-teal-500 bg-teal-900/30 hover:bg-teal-900/50 cursor-pointer animate-pulse' : 'border-gray-800 bg-black/40 opacity-50 cursor-not-allowed'}`}
+                                                            >
+                                                                <div className={`font-bold text-lg flex items-center justify-center gap-2 ${isCh3Ready ? 'text-teal-200' : 'text-gray-600'}`}>
+                                                                    {isChapterCleared ? <Check size={14} /> : (!isCh3Ready ? <Lock size={14} /> : '★')} The Gathering: Sea of Lanterns
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">{isChapterCleared ? 'It became history' : (!isCh3Ready ? 'All memories must be collected' : 'Climax')}</div>
+                                                            </button>
+
+                                                            {isChapterCleared && (
+                                                                <button
+                                                                    onClick={() => handleEffect({ action: 'NEXT_CHAPTER', chapter: 4 })}
+                                                                    className="col-span-1 md:col-span-2 p-3 border border-yellow-500 rounded bg-yellow-900/30 hover:bg-yellow-900/50 text-center animate-pulse game-btn text-yellow-200 font-bold"
+                                                                >
+                                                                    Move to Final Chapter (1879)
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                    {chapter === 4 && (
+                                                        <>
+                                                            <button className="col-span-1 md:col-span-2 p-3 bg-teal-900/20 border border-teal-500/20 rounded text-center text-teal-200 font-cinzel text-sm animate-pulse mb-2 hover:bg-teal-900/40" onClick={() => startScene('CH4_START')}>
+                                                                Chapter 4 Prelude: Easter Egg Check (Start)
+                                                            </button>
+
+                                                            <button onClick={() => { if (spendAp(1)) startScene('CH4_LIBRARY'); }} disabled={completedMissions.has('ch4_library')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch4_library') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch4_library') && <Check size={14} />} 📜 Hiding Rekidai Hoan</div><div className="text-xs text-gray-500">{completedMissions.has('ch4_library') ? 'Completed' : 'Defending Diplomatic Docs'}</div></button>
+                                                            <button onClick={() => { if (spendAp(1)) startScene('CH4_BLOODLINE'); }} disabled={completedMissions.has('ch4_bloodline')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch4_bloodline') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch4_bloodline') && <Check size={14} />} 🩸 The Last Bloodline</div><div className="text-xs text-gray-500">{completedMissions.has('ch4_bloodline') ? 'Completed' : 'Evacuating the Grandson'}</div></button>
+                                                            <button onClick={() => { if (spendAp(1)) startScene('CH4_KARATE'); }} disabled={completedMissions.has('ch4_karate')} className={`p-4 border rounded text-left game-btn ${completedMissions.has('ch4_karate') ? 'border-teal-500/30 bg-teal-900/10 opacity-60' : 'border-gray-700 bg-black/40 hover:bg-white/10'}`}><div className="font-bold text-gray-200 text-sm flex items-center gap-2">{completedMissions.has('ch4_karate') && <Check size={14} />} 🥋 Bare-handed Guardians</div><div className="text-xs text-gray-500">{completedMissions.has('ch4_karate') ? 'Completed' : 'Forming Guard Corps'}</div></button>
+
+                                                            <button
+                                                                onClick={() => { if (isCh4Ready) handleEffect({ action: 'NEXT_CHAPTER', chapter: 5 }); }}
+                                                                disabled={!isCh4Ready}
+                                                                className={`p-4 border rounded text-center col-span-1 md:col-span-2 game-btn transition-all ${isCh4Ready ? 'border-red-500 bg-red-900/30 hover:bg-red-900/50 cursor-pointer animate-pulse' : 'border-gray-800 bg-black/40 opacity-50 cursor-not-allowed'}`}
+                                                            >
+                                                                <div className={`font-bold text-lg flex items-center justify-center gap-2 ${isCh4Ready ? 'text-red-200' : 'text-gray-600'}`}>
+                                                                    {isCh4Ready ? <ChevronRight size={14} /> : <Lock size={14} />} Chapter 5: Sunset of Shuri (Final)
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">{isCh4Ready ? 'Time of Fate' : 'Must complete required missions'}</div>
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    {chapter === 5 && (
+                                                        <button onClick={() => startScene('FINAL_INVASION')} className="col-span-1 md:col-span-2 p-6 border border-red-500 rounded bg-red-900/20 hover:bg-red-900/40 text-center animate-pulse game-btn"><div className="text-2xl font-bold text-red-400 font-cinzel">Disposition of Ryukyu (The End)</div><div className="text-red-300 text-sm">Make your final choice</div></button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="h-12 bg-black/60 p-2 rounded-lg border border-white/10 backdrop-blur-md flex justify-center items-center">
+                                                <button onClick={() => { setTurn(p => p + 1); setCurrentAp(maxAp); setLogs(p => [`🌙 Rested for a day`, ...p]) }} className="flex items-center gap-2 px-4 py-1 rounded hover:bg-white/10 text-xs font-bold text-green-400"><Moon size={12} /> Rest for a day</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Scene Content (Narrative/Dialog) */}
+                                {phase === 'SCENE' && currentScene && (
+                                    <div className="flex-1 flex flex-col justify-end overflow-y-auto">
+                                        <div className="w-full max-w-4xl mx-auto">
+                                            {currentScene.type === 'DIALOG' && (
+                                                <div className="animate-fade-in mb-6">
+                                                    <div className="text-teal-400 text-lg font-bold mb-2 font-cinzel tracking-wider">{currentScene.npc || 'System'}</div>
+                                                    <p className="text-white text-xl md:text-2xl font-myeongjo leading-relaxed whitespace-pre-line drop-shadow-md">"{currentScene.text}"</p>
+                                                </div>
+                                            )}
+                                            {currentScene.type === 'NARRATION' && (
+                                                <div className="text-center pb-8 animate-fade-in">
+                                                    <p className="text-white text-xl md:text-2xl font-myeongjo leading-relaxed whitespace-pre-line drop-shadow-md">
+                                                        {currentScene.text}
+                                                        {(currentScene.id === 'ENDING_TRUE' && (player.traits?.includes('Blessing of Niraikanai') || player.traits?.includes('선조의 인정'))) && "\n\n(Awakening) History has recorded you as 'Eternal Ryukyu'."}
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {currentScene.type === 'CHOICE' ? (
+                                                <div className="animate-fade-in w-full max-w-2xl mx-auto">
+                                                    <p className="text-gray-300 text-center mb-6 italic">{currentScene.text}</p>
+                                                    <div className="flex flex-col gap-3">
+                                                        {currentScene.choices.map((c, i) => {
+                                                            const context = { ...player, completedMissions };
+                                                            const locked = c.condition && !c.condition(context);
+                                                            return (
+                                                                <button key={i} onClick={() => !locked && handleChoice(c)} disabled={locked} className={`w-full p-4 border rounded backdrop-blur-sm text-left flex justify-between items-center transition-all ${locked ? 'bg-gray-900/50 border-gray-700 text-gray-500 cursor-not-allowed' : 'bg-black/60 border-white/30 hover:bg-teal-500 hover:text-black hover:border-teal-400'}`}>
+                                                                    <span className="font-myeongjo text-lg font-bold">{i + 1}. {c.text}</span>
+                                                                    {locked && <span className="text-xs text-red-400">{c.failText}</span>}
+                                                                </button>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="mt-6 flex justify-end w-full max-w-4xl mx-auto">
+                                                    <button
+                                                        onClick={() => {
+                                                            handleEffect(currentScene.effect);
+
+                                                            if (currentScene.effect?.action === 'GAME_CLEAR' ||
+                                                                currentScene.effect?.action === 'GAME_OVER' ||
+                                                                currentScene.effect?.chapter ||
+                                                                currentScene.effect?.action === 'START_RHYTHM' ||
+                                                                currentScene.effect?.action === 'START_QUIZ' ||
+                                                                currentScene.effect?.action === 'START_DEBATE' ||
+                                                                currentScene.effect?.action === 'START_STEALTH') {
+                                                                return;
+                                                            }
+
+                                                            nextScene(currentScene.next);
+                                                        }}
+                                                        className="px-8 py-3 bg-teal-500 text-black font-bold rounded hover:bg-white transition-colors flex items-center gap-2 animate-pulse"
+                                                    >
+                                                        Next <ChevronRight size={18} />
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Ending Screen */}
+                                {phase === 'ENDING' && (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                                        <h2 className="text-4xl font-bold text-teal-400 mb-6 font-cinzel">THE END</h2>
+                                        <div className="bg-black/50 p-8 rounded-lg border border-white/10 w-full max-w-md mb-8 backdrop-blur-md">
+                                            <p className="text-xl text-white mb-4 font-myeongjo">Your choices made history.</p>
+
+                                            <div className="space-y-2 mb-6 text-left">
+                                                <div className="flex justify-between text-teal-300">
+                                                    <span>Collected Memories:</span>
+                                                    <span>{player.inventory.length} items ({getCollectorRank()})</span>
+                                                </div>
+                                                <div className="flex justify-between text-gray-400 text-sm">
+                                                    <span>Final Identity:</span>
+                                                    <span>{player.stats.int}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="text-4xl font-bold text-yellow-400 mb-2 font-cinzel tracking-widest">
+                                                SCORE: {calculateScore()}
+                                            </div>
+
+                                            <div className="flex justify-between text-gray-500 text-xs border-t border-white/10 pt-4">
+                                                <span>(Items x 2000)</span>
+                                                <span>(Identity x 50)</span>
+                                                <span>(Funds x 5)</span>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => window.location.reload()} className="px-8 py-3 border border-white text-white hover:bg-white hover:text-black transition-all rounded">Return to Title</button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {phase === 'RHYTHM' && <RhythmGame onComplete={handleRhythmComplete} />}
+                    {
+                        phase === 'DEBATE' && (
+                            <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center p-4">
+                                <DebateGame onComplete={handleDebateComplete} />
+                            </div>
+                        )
+                    }
+                    {
+                        phase === 'STEALTH' && (
+                            <StealthGame onComplete={handleStealthComplete} />
+                        )
+                    }
+                    {
+                        phase === 'ENDING' && (
+                            <EndingScreen
+                                data={{ endingType, stats: player.stats, titles: player.traits }}
+                                onReturn={(nextPhase) => {
+                                    if (nextPhase === 'POST_CREDIT') setPhase('POST_CREDIT');
+                                    else window.location.reload();
+                                }}
+                            />
+                        )
+                    }
+                    {
+                        phase === 'POST_CREDIT' && (
+                            <PostCreditScene
+                                endingType={endingType}
+                                onComplete={() => window.location.reload()}
+                            />
+                        )
+                    }
+
+                    {
+                        phase === 'QUIZ' && (
+                            <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center p-4">
+                                <div className="bg-black/80 p-8 rounded-xl border border-teal-500/50 shadow-2xl backdrop-blur w-full max-w-2xl">
+                                    <BingataQuiz onComplete={handleQuizComplete} />
+                                </div>
+                            </div>
+                        )
+                    }
+
+                    {/* --- INVENTORY MODAL --- */}
+                    {showInventory && (
+                        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-md animate-fade-in p-4">
+                            <div className="bg-gradient-to-b from-gray-900 to-black border border-teal-500/30 w-full max-w-4xl h-[80vh] rounded-xl shadow-2xl flex flex-col relative overflow-hidden">
+
+                                {/* Header */}
+                                <div className="p-6 border-b border-white/10 flex justify-between items-center bg-white/5">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-teal-900/50 flex items-center justify-center border border-teal-500/50 text-2xl">🎒</div>
+                                        <div>
+                                            <h2 className="text-2xl font-cinzel text-teal-100 font-bold">INVENTORY</h2>
+                                            <p className="text-xs text-gray-400">Total Items: {player.inventory.length}</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowInventory(false)} className="text-gray-400 hover:text-white p-2 hover:bg-white/10 rounded-full transition-colors">
+                                        <X size={24} />
+                                    </button>
+                                </div>
+
+                                {/* Grid Content */}
+                                <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+                                    {player.inventory.length === 0 ? (
+                                        <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-4">
+                                            <span className="text-6xl opacity-30">📦</span>
+                                            <p>The bag is empty.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                            {player.inventory.map((itemName, i) => {
+                                                const item = ITEM_DB[itemName] || ITEM_DB['default'];
+                                                return (
+                                                    <button
+                                                        key={i}
+                                                        onClick={() => setViewingItem({ name: itemName, ...item })}
+                                                        className="group bg-white/5 hover:bg-teal-900/20 border border-white/10 hover:border-teal-500/50 rounded-lg p-4 flex flex-col items-center gap-3 transition-all hover:-translate-y-1"
+                                                    >
+                                                        <div className="text-4xl filter drop-shadow-md group-hover:scale-110 transition-transform">{item.icon}</div>
+                                                        <div className="text-sm text-gray-300 font-bold text-center group-hover:text-teal-200">{itemName}</div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Footer */}
+                                <div className="p-4 bg-black/40 border-t border-white/5 text-center text-xs text-gray-600 font-mono">
+                                    RYUKYU KINGDOM COLLECTION
+                                </div>
+
+                                {/* --- ITEM DETAIL VIEW --- */}
+                                {viewingItem && (
+                                    <div className="absolute inset-0 z-[10020] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in">
+                                        <div className="w-full max-w-4xl h-full md:h-auto md:aspect-video bg-gray-900 rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row border border-white/10">
+
+                                            {/* LEFT: Illustration Area */}
+                                            <div className={`w-full md:w-1/2 h-1/2 md:h-full relative flex items-center justify-center p-8 overflow-hidden ${viewingItem.image ? 'bg-black' : `bg-gradient-to-br ${viewingItem.color || 'from-gray-700 to-gray-900'}`}`}>
+                                                {viewingItem.image ? (
+                                                    <img src={viewingItem.image} alt={viewingItem.name} className="absolute inset-0 w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity duration-500" />
+                                                ) : (
+                                                    <>
+                                                        <div className="absolute w-[150%] h-[150%] bg-white/10 rounded-full blur-3xl -top-1/4 -left-1/4 animate-pulse"></div>
+                                                        <div className="relative z-10 text-9xl md:text-[10rem] filter drop-shadow-2xl animate-bounce-subtle transform hover:scale-110 transition-transform duration-700 cursor-pointer">
+                                                            {viewingItem.icon}
+                                                        </div>
+                                                        <div className="absolute inset-4 border border-white/20 rounded-xl pointer-events-none"></div>
+                                                    </>
+                                                )}
+                                            </div>
+
+                                            {/* RIGHT: Description Area */}
+                                            <div className="w-full md:w-1/2 h-1/2 md:h-full bg-black/80 p-6 md:p-8 flex flex-col relative text-left">
+                                                <button
+                                                    onClick={() => setViewingItem(null)}
+                                                    className="absolute top-4 right-4 text-gray-500 hover:text-white p-2 hover:bg-white/10 rounded-full transition-all z-20"
+                                                >
+                                                    <X size={24} />
+                                                </button>
+
+                                                <div className="mb-6 border-b border-gray-700 pb-4">
+                                                    <div className="text-xs font-bold text-teal-500 mb-1 tracking-widest uppercase">
+                                                        {viewingItem.type || 'ITEM'}
+                                                    </div>
+                                                    <h3 className="text-3xl md:text-4xl font-cinzel font-bold text-white drop-shadow-md">
+                                                        {viewingItem.name}
+                                                    </h3>
+                                                </div>
+
+                                                <div className="flex-1 overflow-y-auto pr-2 scrollbar-hide">
+                                                    <p className="text-gray-300 font-myeongjo text-lg leading-loose whitespace-pre-line">
+                                                        {viewingItem.desc}
+                                                    </p>
+                                                </div>
+
+                                                <div className="mt-6 pt-4 border-t border-gray-800">
+                                                    <button
+                                                        onClick={() => setViewingItem(null)}
+                                                        className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-teal-500/30 rounded text-sm text-gray-400 hover:text-white transition-all tracking-widest uppercase"
+                                                    >
+                                                        Close Detail
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div >
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<> <GlobalStyles /> <RyukyuGame /> </>);
+    </script>
+</body>
+
+</html>
